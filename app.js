@@ -599,21 +599,23 @@ function toast(message, { action, onAction } = {}) {
 
 // ---------------------------------------------------------------- Amount editor
 
-function mountAmount(root, food, initialServings, onChange) {
-  const st = { mode: 'servings', servings: initialServings };
+// `askGrams`: start in grams with an empty field, so an unreliable default
+// serving (packaged products) is never added without someone typing the amount.
+function mountAmount(root, food, initialServings, onChange, { askGrams = false } = {}) {
   const canGrams = food.serving.grams > 0;
+  const st = { mode: askGrams && canGrams ? 'grams' : 'servings', servings: askGrams && canGrams ? 0 : initialServings };
   const step = 0.5;
 
   const preview = () => {
     const carbs = lineCarbs(food, st.servings);
-    $('#amt-preview', root).textContent = food.free
+    $('#amt-preview', root).textContent = !(st.servings > 0) ? 'Enter how many grams he is eating.' : food.free
       ? 'Free food. No carbs counted.'
       : `${fmt(st.servings, 2)} × ${food.serving.label} = ${fmt(carbs)} g carbs`;
     onChange?.(st.servings);
   };
 
   const paint = () => {
-    const value = st.mode === 'grams' ? fmt(st.servings * food.serving.grams, 0) : fmt(st.servings, 2);
+    const value = !(st.servings > 0) ? '' : st.mode === 'grams' ? fmt(st.servings * food.serving.grams, 0) : fmt(st.servings, 2);
     root.innerHTML = `
       ${canGrams ? `<div class="segmented" role="group" aria-label="Amount in">
         <button type="button" data-mode="servings" aria-pressed="${st.mode === 'servings'}">Servings</button>
@@ -624,7 +626,7 @@ function mountAmount(root, food, initialServings, onChange) {
           <div class="row field-row">
             <label for="amt-input">${st.mode === 'grams' ? 'Grams eaten' : 'Servings'}<span class="row-sub">${st.mode === 'grams' ? 'Weigh it if you can' : 'Half steps'}</span></label>
             ${st.mode === 'servings' ? `<span class="stepper"><button type="button" data-amt="-1" aria-label="Less">${ICON.minus}</button></span>` : ''}
-            <input id="amt-input" inputmode="decimal" value="${value}" style="width:4.5rem" aria-label="${st.mode === 'grams' ? 'Grams' : 'Servings'}">
+            <input id="amt-input" inputmode="decimal" value="${value}" placeholder="0" style="width:4.5rem" aria-label="${st.mode === 'grams' ? 'Grams' : 'Servings'}">
             ${st.mode === 'servings' ? `<span class="stepper"><button type="button" data-amt="1" aria-label="More">${ICON.plus}</button></span>` : '<span class="unit">g</span>'}
           </div>
         </div>
@@ -685,7 +687,7 @@ function openFoodDetail(food) {
       ${isAdmin() && food.source === 'custom' ? '<button class="btn btn-danger" id="detail-remove">Remove from family foods</button>' : ''}
     </div>`, {
     onMount(root) {
-      const getServings = mountAmount($('#amount', root), food, 1);
+      const getServings = mountAmount($('#amount', root), food, 1, null, { askGrams: food.source === 'off' });
       $('#detail-add', root).addEventListener('click', () => {
         const s = getServings();
         if (!(s > 0)) return toast('Enter an amount first');

@@ -38,7 +38,10 @@ for await (const line of rl) {
 
   const name = clean(cells[col.product_name]);
   const carbs = Number(cells[col.carbohydrates_100g]);
-  if (!name || name.length < 2 || !Number.isFinite(carbs) || carbs < 0 || carbs > 100) continue;
+  // Drop zero/near-zero carbs: in this crowd-sourced data they are mostly missing
+  // values (e.g. cereals entered as 0 g), and a wrong 0 means no insulin for real carbs.
+  // Truly carb-free foods don't need counting anyway.
+  if (!name || name.length < 2 || !Number.isFinite(carbs) || carbs < 0.5 || carbs > 100) continue;
 
   const brand = clean(cells[col.brands]).split(',')[0].trim();
   const qty = Number(cells[col.serving_quantity]);
