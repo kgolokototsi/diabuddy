@@ -1,0 +1,4 @@
+node_modules/
+*.zip
+FoodData_Central_*.json
+.DS_Store

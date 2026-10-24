@@ -1,0 +1,1807 @@
+{
+ "generated": "2026-10-24",
+ "foods": [
+  {
+   "id": "nb-futurelife",
+   "name": "Futurelife",
+   "category": "Breakfast",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 24,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-oats",
+   "name": "Oats",
+   "category": "Breakfast",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 28.5,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-raspberries",
+   "name": "Raspberries",
+   "category": "Fruit",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 3.6,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-blueberries",
+   "name": "Blueberries",
+   "category": "Fruit",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 6,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-blackberries",
+   "name": "Blackberries",
+   "category": "Fruit",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 3,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-strawberries",
+   "name": "Strawberries",
+   "category": "Fruit",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 2.1,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-mangoes",
+   "name": "Mangoes",
+   "category": "Fruit",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 6,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-potatoes",
+   "name": "Potatoes",
+   "category": "Vegetables",
+   "serving": {
+    "label": "≈100 g",
+    "grams": 100
+   },
+   "netCarbs": 25,
+   "source": "notebook",
+   "note": "Approximate"
+  },
+  {
+   "id": "nb-sweet-potatoes",
+   "name": "Sweet potatoes",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 17,
+   "source": "notebook",
+   "note": "Approximate"
+  },
+  {
+   "id": "nb-corn",
+   "name": "Corn",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 21,
+   "source": "notebook",
+   "note": "Normal serving should be smaller than 100 g"
+  },
+  {
+   "id": "nb-broccoli",
+   "name": "Broccoli",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-cucumber",
+   "name": "Cucumber",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-tomatoes",
+   "name": "Tomatoes",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-carrots",
+   "name": "Carrots",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-spinach",
+   "name": "Spinach",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-mushrooms",
+   "name": "Mushrooms",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-cabbage",
+   "name": "Cabbage",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-green-beans",
+   "name": "Green beans",
+   "category": "Vegetables",
+   "serving": {
+    "label": "Unlimited",
+    "grams": null
+   },
+   "netCarbs": 0,
+   "source": "notebook",
+   "free": true
+  },
+  {
+   "id": "nb-chips",
+   "name": "Chips",
+   "category": "Vegetables",
+   "serving": {
+    "label": "8–10 pieces",
+    "grams": null
+   },
+   "netCarbs": 15,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-butternut",
+   "name": "Butternut",
+   "category": "Vegetables",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 5.5,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-gem-squash",
+   "name": "Gem squash",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 3.6,
+   "source": "notebook"
+  },
+  {
+   "id": "nb-gherkins",
+   "name": "Gherkins",
+   "category": "Vegetables",
+   "serving": {
+    "label": "30 g (2 pcs)",
+    "grams": 30
+   },
+   "netCarbs": 2,
+   "source": "notebook"
+  },
+  {
+   "id": "usda-174924",
+   "name": "White bread",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 slice (35 g)",
+    "grams": 35
+   },
+   "netCarbs": 16.3,
+   "per100g": 46.7,
+   "source": "usda",
+   "fdcId": 174924,
+   "usdaName": "Bread, white, commercially prepared (includes soft bread crumbs)",
+   "note": "SA slices vary – weigh if unsure"
+  },
+  {
+   "id": "usda-172688",
+   "name": "Brown / whole-wheat bread",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 slice (35 g)",
+    "grams": 35
+   },
+   "netCarbs": 12.8,
+   "per100g": 36.7,
+   "source": "usda",
+   "fdcId": 172688,
+   "usdaName": "Bread, whole-wheat, commercially prepared",
+   "note": "SA slices vary – weigh if unsure"
+  },
+  {
+   "id": "usda-174925",
+   "name": "White toast",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 slice (30 g)",
+    "grams": 30
+   },
+   "netCarbs": 15.5,
+   "per100g": 51.6,
+   "source": "usda",
+   "fdcId": 174925,
+   "usdaName": "Bread, white, commercially prepared, toasted"
+  },
+  {
+   "id": "usda-172796",
+   "name": "Bread roll / hot dog roll",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 roll (45 g)",
+    "grams": 45
+   },
+   "netCarbs": 21.7,
+   "per100g": 48.3,
+   "source": "usda",
+   "fdcId": 172796,
+   "usdaName": "Rolls, hamburger or hotdog, plain"
+  },
+  {
+   "id": "usda-174915",
+   "name": "Pita bread",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 small (30 g)",
+    "grams": 30
+   },
+   "netCarbs": 16.1,
+   "per100g": 53.5,
+   "source": "usda",
+   "fdcId": 174915,
+   "usdaName": "Bread, pita, white, enriched"
+  },
+  {
+   "id": "usda-175037",
+   "name": "Flour tortilla / wrap",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 wrap (45 g)",
+    "grams": 45
+   },
+   "netCarbs": 20.7,
+   "per100g": 45.9,
+   "source": "usda",
+   "fdcId": 175037,
+   "usdaName": "Tortillas, ready-to-bake or -fry, flour, refrigerated"
+  },
+  {
+   "id": "usda-175063",
+   "name": "English muffin",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 muffin (57 g)",
+    "grams": 57
+   },
+   "netCarbs": 24.7,
+   "per100g": 43.3,
+   "source": "usda",
+   "fdcId": 175063,
+   "usdaName": "English muffins, plain, enriched, without calcium propionate(includes sourdough)"
+  },
+  {
+   "id": "usda-174987",
+   "name": "Croissant",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 medium (57 g)",
+    "grams": 57
+   },
+   "netCarbs": 24.6,
+   "per100g": 43.2,
+   "source": "usda",
+   "fdcId": 174987,
+   "usdaName": "Croissants, butter"
+  },
+  {
+   "id": "usda-175009",
+   "name": "Pancake, homemade",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 pancake (38 g)",
+    "grams": 38
+   },
+   "netCarbs": 10.8,
+   "per100g": 28.3,
+   "source": "usda",
+   "fdcId": 175009,
+   "usdaName": "Pancakes, plain, prepared from recipe"
+  },
+  {
+   "id": "usda-175038",
+   "name": "Waffle, frozen",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 waffle (35 g)",
+    "grams": 35
+   },
+   "netCarbs": 14.3,
+   "per100g": 40.8,
+   "source": "usda",
+   "fdcId": 175038,
+   "usdaName": "Waffles, plain, frozen, ready-to-heat"
+  },
+  {
+   "id": "usda-172765",
+   "name": "Blueberry muffin",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 small (60 g)",
+    "grams": 60
+   },
+   "netCarbs": 31.1,
+   "per100g": 51.9,
+   "source": "usda",
+   "fdcId": 172765,
+   "usdaName": "Muffins, blueberry, commercially prepared (Includes mini-muffins)"
+  },
+  {
+   "id": "usda-174990",
+   "name": "Doughnut, plain",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 medium (47 g)",
+    "grams": 47
+   },
+   "netCarbs": 21.3,
+   "per100g": 45.4,
+   "source": "usda",
+   "fdcId": 174990,
+   "usdaName": "Doughnuts, cake-type, plain (includes unsugared, old-fashioned)"
+  },
+  {
+   "id": "usda-174992",
+   "name": "Doughnut, glazed",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 medium (47 g)",
+    "grams": 47
+   },
+   "netCarbs": 23.2,
+   "per100g": 49.3,
+   "source": "usda",
+   "fdcId": 174992,
+   "usdaName": "Doughnuts, cake-type, plain, sugared or glazed"
+  },
+  {
+   "id": "usda-174934",
+   "name": "Chocolate cake with icing",
+   "category": "Bread & bakery",
+   "serving": {
+    "label": "1 kids slice (50 g)",
+    "grams": 50
+   },
+   "netCarbs": 25.3,
+   "per100g": 50.6,
+   "source": "usda",
+   "fdcId": 174934,
+   "usdaName": "Cake, chocolate, commercially prepared with chocolate frosting, in-store bakery"
+  },
+  {
+   "id": "usda-174648",
+   "name": "Corn flakes",
+   "category": "Breakfast",
+   "serving": {
+    "label": "30 g (about 1 cup)",
+    "grams": 30
+   },
+   "netCarbs": 25.6,
+   "per100g": 85.3,
+   "source": "usda",
+   "fdcId": 174648,
+   "usdaName": "Cereals ready-to-eat, RALSTON Corn Flakes",
+   "note": "Check your box – brands differ"
+  },
+  {
+   "id": "usda-169040",
+   "name": "Weet-Bix / Weetabix",
+   "category": "Breakfast",
+   "serving": {
+    "label": "1 biscuit (19 g)",
+    "grams": 19
+   },
+   "netCarbs": 13.3,
+   "per100g": 70.1,
+   "source": "usda",
+   "fdcId": 169040,
+   "usdaName": "Cereals ready-to-eat, WEETABIX whole grain cereal",
+   "note": "Check your box – biscuit weight varies"
+  },
+  {
+   "id": "usda-172975",
+   "name": "Granola / muesli with raisins",
+   "category": "Breakfast",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 19.6,
+   "per100g": 65.3,
+   "source": "usda",
+   "fdcId": 172975,
+   "usdaName": "Cereals ready-to-eat, QUAKER, QUAKER 100% Natural Granola with Oats, Wheat, Honey, and Raisins"
+  },
+  {
+   "id": "usda-173905",
+   "name": "Oats porridge, cooked with water",
+   "category": "Breakfast",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 10.3,
+   "per100g": 10.3,
+   "source": "usda",
+   "fdcId": 173905,
+   "usdaName": "Cereals, oats, regular and quick, unenriched, cooked with water (includes boiling and microwaving), without salt"
+  },
+  {
+   "id": "usda-171659",
+   "name": "Tasty Wheat / farina porridge, cooked",
+   "category": "Breakfast",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 10.1,
+   "per100g": 10.1,
+   "source": "usda",
+   "fdcId": 171659,
+   "usdaName": "Cereals, farina, enriched, assorted brands including CREAM OF WHEAT, quick (1-3 minutes), cooked with water, without salt"
+  },
+  {
+   "id": "usda-168878",
+   "name": "White rice, cooked",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 27.8,
+   "per100g": 27.8,
+   "source": "usda",
+   "fdcId": 168878,
+   "usdaName": "Rice, white, long-grain, regular, enriched, cooked"
+  },
+  {
+   "id": "usda-169704",
+   "name": "Brown rice, cooked",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 24,
+   "per100g": 24,
+   "source": "usda",
+   "fdcId": 169704,
+   "usdaName": "Rice, brown, long-grain, cooked (Includes foods for USDA's Food Distribution Program)"
+  },
+  {
+   "id": "usda-169737",
+   "name": "Pasta / spaghetti / macaroni, cooked",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 29.1,
+   "per100g": 29.1,
+   "source": "usda",
+   "fdcId": 169737,
+   "usdaName": "Pasta, cooked, enriched, without added salt"
+  },
+  {
+   "id": "usda-169732",
+   "name": "Egg noodles, cooked",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 24,
+   "per100g": 24,
+   "source": "usda",
+   "fdcId": 169732,
+   "usdaName": "Noodles, egg, enriched, cooked"
+  },
+  {
+   "id": "usda-169700",
+   "name": "Couscous, cooked",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 21.8,
+   "per100g": 21.8,
+   "source": "usda",
+   "fdcId": 169700,
+   "usdaName": "Couscous, cooked"
+  },
+  {
+   "id": "usda-171655",
+   "name": "Soft maize porridge (slap pap)",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g cooked",
+    "grams": 100
+   },
+   "netCarbs": 14,
+   "per100g": 14,
+   "source": "usda",
+   "fdcId": 171655,
+   "usdaName": "Cereals, corn grits, white, regular and quick, enriched, cooked with water, without salt",
+   "note": "Soft/runny pap only. Stiff pap is denser – weigh the dry maize meal for accuracy"
+  },
+  {
+   "id": "usda-168922",
+   "name": "Maize meal, dry (weigh before cooking)",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "30 g dry",
+    "grams": 30
+   },
+   "netCarbs": 22.7,
+   "per100g": 75.5,
+   "source": "usda",
+   "fdcId": 168922,
+   "usdaName": "Cornmeal, degermed, enriched, white",
+   "note": "Weigh his portion of dry meal, then cook"
+  },
+  {
+   "id": "usda-168555",
+   "name": "Mashed potato (milk & butter)",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 15.3,
+   "per100g": 15.3,
+   "source": "usda",
+   "fdcId": 168555,
+   "usdaName": "Potatoes, mashed, home-prepared, whole milk and butter added"
+  },
+  {
+   "id": "usda-170093",
+   "name": "Baked potato with skin",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 19,
+   "per100g": 19,
+   "source": "usda",
+   "fdcId": 170093,
+   "usdaName": "Potatoes, baked, flesh and skin, without salt"
+  },
+  {
+   "id": "usda-170437",
+   "name": "Oven chips / fries",
+   "category": "Grains & starches",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 25.2,
+   "per100g": 25.2,
+   "source": "usda",
+   "fdcId": 170437,
+   "usdaName": "Potatoes, french fried, crinkle or regular cut, salt added in processing, frozen, oven-heated"
+  },
+  {
+   "id": "usda-171688",
+   "name": "Apple",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 small (100 g)",
+    "grams": 100
+   },
+   "netCarbs": 11.4,
+   "per100g": 11.4,
+   "source": "usda",
+   "fdcId": 171688,
+   "usdaName": "Apples, raw, with skin (Includes foods for USDA's Food Distribution Program)"
+  },
+  {
+   "id": "usda-173944",
+   "name": "Banana",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 small, peeled (100 g)",
+    "grams": 100
+   },
+   "netCarbs": 20.2,
+   "per100g": 20.2,
+   "source": "usda",
+   "fdcId": 173944,
+   "usdaName": "Bananas, raw"
+  },
+  {
+   "id": "usda-169097",
+   "name": "Orange",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 small, peeled (100 g)",
+    "grams": 100
+   },
+   "netCarbs": 9.4,
+   "per100g": 9.4,
+   "source": "usda",
+   "fdcId": 169097,
+   "usdaName": "Oranges, raw, all commercial varieties"
+  },
+  {
+   "id": "usda-169105",
+   "name": "Naartjie / mandarin",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 medium, peeled (75 g)",
+    "grams": 75
+   },
+   "netCarbs": 8.6,
+   "per100g": 11.5,
+   "source": "usda",
+   "fdcId": 169105,
+   "usdaName": "Tangerines, (mandarin oranges), raw"
+  },
+  {
+   "id": "usda-174683",
+   "name": "Grapes",
+   "category": "Fruit",
+   "serving": {
+    "label": "10 grapes (50 g)",
+    "grams": 50
+   },
+   "netCarbs": 8.6,
+   "per100g": 17.2,
+   "source": "usda",
+   "fdcId": 174683,
+   "usdaName": "Grapes, red or green (European type, such as Thompson seedless), raw"
+  },
+  {
+   "id": "usda-169118",
+   "name": "Pear",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 small (100 g)",
+    "grams": 100
+   },
+   "netCarbs": 12.1,
+   "per100g": 12.1,
+   "source": "usda",
+   "fdcId": 169118,
+   "usdaName": "Pears, raw"
+  },
+  {
+   "id": "usda-169928",
+   "name": "Peach",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 small (100 g)",
+    "grams": 100
+   },
+   "netCarbs": 8,
+   "per100g": 8,
+   "source": "usda",
+   "fdcId": 169928,
+   "usdaName": "Peaches, yellow, raw"
+  },
+  {
+   "id": "usda-169949",
+   "name": "Plum",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 plum (66 g)",
+    "grams": 66
+   },
+   "netCarbs": 6.6,
+   "per100g": 10,
+   "source": "usda",
+   "fdcId": 169949,
+   "usdaName": "Plums, raw"
+  },
+  {
+   "id": "usda-171697",
+   "name": "Apricot",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 apricot (35 g)",
+    "grams": 35
+   },
+   "netCarbs": 3.2,
+   "per100g": 9.1,
+   "source": "usda",
+   "fdcId": 171697,
+   "usdaName": "Apricots, raw"
+  },
+  {
+   "id": "usda-167765",
+   "name": "Watermelon",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 cup cubes (150 g)",
+    "grams": 150
+   },
+   "netCarbs": 10.8,
+   "per100g": 7.2,
+   "source": "usda",
+   "fdcId": 167765,
+   "usdaName": "Watermelon, raw"
+  },
+  {
+   "id": "usda-169092",
+   "name": "Spanspek / cantaloupe",
+   "category": "Fruit",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 7.3,
+   "per100g": 7.3,
+   "source": "usda",
+   "fdcId": 169092,
+   "usdaName": "Melons, cantaloupe, raw"
+  },
+  {
+   "id": "usda-169124",
+   "name": "Pineapple",
+   "category": "Fruit",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 11.7,
+   "per100g": 11.7,
+   "source": "usda",
+   "fdcId": 169124,
+   "usdaName": "Pineapple, raw, all varieties"
+  },
+  {
+   "id": "usda-168153",
+   "name": "Kiwi fruit",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 kiwi (70 g)",
+    "grams": 70
+   },
+   "netCarbs": 8.2,
+   "per100g": 11.7,
+   "source": "usda",
+   "fdcId": 168153,
+   "usdaName": "Kiwifruit, green, raw"
+  },
+  {
+   "id": "usda-171719",
+   "name": "Cherries",
+   "category": "Fruit",
+   "serving": {
+    "label": "10 cherries (70 g)",
+    "grams": 70
+   },
+   "netCarbs": 9.7,
+   "per100g": 13.9,
+   "source": "usda",
+   "fdcId": 171719,
+   "usdaName": "Cherries, sweet, raw"
+  },
+  {
+   "id": "usda-169086",
+   "name": "Litchis",
+   "category": "Fruit",
+   "serving": {
+    "label": "5 litchis (50 g)",
+    "grams": 50
+   },
+   "netCarbs": 7.6,
+   "per100g": 15.2,
+   "source": "usda",
+   "fdcId": 169086,
+   "usdaName": "Litchis, raw"
+  },
+  {
+   "id": "usda-173044",
+   "name": "Guava",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 guava (55 g)",
+    "grams": 55
+   },
+   "netCarbs": 4.9,
+   "per100g": 8.9,
+   "source": "usda",
+   "fdcId": 173044,
+   "usdaName": "Guavas, common, raw"
+  },
+  {
+   "id": "usda-169926",
+   "name": "Pawpaw / papaya",
+   "category": "Fruit",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 9.1,
+   "per100g": 9.1,
+   "source": "usda",
+   "fdcId": 169926,
+   "usdaName": "Papayas, raw"
+  },
+  {
+   "id": "usda-168165",
+   "name": "Raisins",
+   "category": "Fruit",
+   "serving": {
+    "label": "1 mini box (14 g)",
+    "grams": 14
+   },
+   "netCarbs": 10.5,
+   "per100g": 74.8,
+   "source": "usda",
+   "fdcId": 168165,
+   "usdaName": "Raisins, dark, seedless (Includes foods for USDA's Food Distribution Program)"
+  },
+  {
+   "id": "usda-173941",
+   "name": "Dried apricots",
+   "category": "Fruit",
+   "serving": {
+    "label": "3 pieces (21 g)",
+    "grams": 21
+   },
+   "netCarbs": 11.6,
+   "per100g": 55.3,
+   "source": "usda",
+   "fdcId": 173941,
+   "usdaName": "Apricots, dried, sulfured, uncooked"
+  },
+  {
+   "id": "usda-171695",
+   "name": "Apple purée, unsweetened",
+   "category": "Fruit",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 10.2,
+   "per100g": 10.2,
+   "source": "usda",
+   "fdcId": 171695,
+   "usdaName": "Applesauce, canned, unsweetened, without added ascorbic acid (Includes foods for USDA's Food Distribution Program)"
+  },
+  {
+   "id": "usda-174668",
+   "name": "Fruit cocktail in juice",
+   "category": "Fruit",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 10.9,
+   "per100g": 10.9,
+   "source": "usda",
+   "fdcId": 174668,
+   "usdaName": "Fruit cocktail, (peach and pineapple and pear and grape and cherry), canned, juice pack, solids and liquids"
+  },
+  {
+   "id": "usda-171705",
+   "name": "Avocado",
+   "category": "Fruit",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 0.9,
+   "per100g": 1.8,
+   "source": "usda",
+   "fdcId": 171705,
+   "usdaName": "Avocados, raw, all commercial varieties"
+  },
+  {
+   "id": "usda-175182",
+   "name": "Baked beans in tomato sauce",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 17,
+   "per100g": 17,
+   "source": "usda",
+   "fdcId": 175182,
+   "usdaName": "Beans, baked, canned, plain or vegetarian"
+  },
+  {
+   "id": "usda-175194",
+   "name": "Red kidney beans, cooked",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 15.4,
+   "per100g": 15.4,
+   "source": "usda",
+   "fdcId": 175194,
+   "usdaName": "Beans, kidney, red, mature seeds, cooked, boiled, without salt"
+  },
+  {
+   "id": "usda-173757",
+   "name": "Chickpeas, cooked",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 19.8,
+   "per100g": 19.8,
+   "source": "usda",
+   "fdcId": 173757,
+   "usdaName": "Chickpeas (garbanzo beans, bengal gram), mature seeds, cooked, boiled, without salt"
+  },
+  {
+   "id": "usda-172421",
+   "name": "Lentils, cooked",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 12.2,
+   "per100g": 12.2,
+   "source": "usda",
+   "fdcId": 172421,
+   "usdaName": "Lentils, mature seeds, cooked, boiled, without salt"
+  },
+  {
+   "id": "usda-170017",
+   "name": "Peas, cooked",
+   "category": "Vegetables",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 4.9,
+   "per100g": 9.8,
+   "source": "usda",
+   "fdcId": 170017,
+   "usdaName": "Peas, green, frozen, cooked, boiled, drained, without salt"
+  },
+  {
+   "id": "usda-169214",
+   "name": "Sweetcorn kernels, canned",
+   "category": "Vegetables",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 6.2,
+   "per100g": 12.3,
+   "source": "usda",
+   "fdcId": 169214,
+   "usdaName": "Corn, sweet, yellow, canned, whole kernel, drained solids"
+  },
+  {
+   "id": "usda-168449",
+   "name": "Pumpkin, cooked",
+   "category": "Vegetables",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 3.8,
+   "per100g": 3.8,
+   "source": "usda",
+   "fdcId": 168449,
+   "usdaName": "Pumpkin, cooked, boiled, drained, without salt"
+  },
+  {
+   "id": "usda-170000",
+   "name": "Onion",
+   "category": "Vegetables",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 3.8,
+   "per100g": 7.6,
+   "source": "usda",
+   "fdcId": 170000,
+   "usdaName": "Onions, raw"
+  },
+  {
+   "id": "usda-170108",
+   "name": "Red pepper",
+   "category": "Vegetables",
+   "serving": {
+    "label": "50 g",
+    "grams": 50
+   },
+   "netCarbs": 2,
+   "per100g": 3.9,
+   "source": "usda",
+   "fdcId": 170108,
+   "usdaName": "Peppers, sweet, red, raw"
+  },
+  {
+   "id": "usda-169248",
+   "name": "Lettuce",
+   "category": "Vegetables",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 0.5,
+   "per100g": 1.8,
+   "source": "usda",
+   "fdcId": 169248,
+   "usdaName": "Lettuce, iceberg (includes crisphead types), raw"
+  },
+  {
+   "id": "usda-171265",
+   "name": "Full cream milk",
+   "category": "Dairy",
+   "serving": {
+    "label": "1 cup (250 ml)",
+    "grams": 250
+   },
+   "netCarbs": 12,
+   "per100g": 4.8,
+   "source": "usda",
+   "fdcId": 171265,
+   "usdaName": "Milk, whole, 3.25% milkfat, with added vitamin D"
+  },
+  {
+   "id": "usda-171267",
+   "name": "Low fat milk (2%)",
+   "category": "Dairy",
+   "serving": {
+    "label": "1 cup (250 ml)",
+    "grams": 250
+   },
+   "netCarbs": 12,
+   "per100g": 4.8,
+   "source": "usda",
+   "fdcId": 171267,
+   "usdaName": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D"
+  },
+  {
+   "id": "usda-170880",
+   "name": "Chocolate milk",
+   "category": "Dairy",
+   "serving": {
+    "label": "1 cup (250 ml)",
+    "grams": 250
+   },
+   "netCarbs": 28.5,
+   "per100g": 11.4,
+   "source": "usda",
+   "fdcId": 170880,
+   "usdaName": "Milk, chocolate, fluid, commercial, reduced fat, with added vitamin A and vitamin D",
+   "note": "Check the bottle – flavoured milks vary a lot"
+  },
+  {
+   "id": "usda-171284",
+   "name": "Plain yoghurt",
+   "category": "Dairy",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 4.7,
+   "per100g": 4.7,
+   "source": "usda",
+   "fdcId": 171284,
+   "usdaName": "Yogurt, plain, whole milk"
+  },
+  {
+   "id": "usda-173456",
+   "name": "Fruit yoghurt, low fat",
+   "category": "Dairy",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 18.6,
+   "per100g": 18.6,
+   "source": "usda",
+   "fdcId": 173456,
+   "usdaName": "Yogurt, fruit, low fat, 9 grams protein per 8 ounce, fortified with vitamin D",
+   "note": "Check the tub – brands vary"
+  },
+  {
+   "id": "usda-171304",
+   "name": "Greek yoghurt, plain",
+   "category": "Dairy",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 4,
+   "per100g": 4,
+   "source": "usda",
+   "fdcId": 171304,
+   "usdaName": "Yogurt, Greek, plain, whole milk"
+  },
+  {
+   "id": "usda-167575",
+   "name": "Vanilla ice cream",
+   "category": "Dairy",
+   "serving": {
+    "label": "1 scoop (65 g)",
+    "grams": 65
+   },
+   "netCarbs": 14.9,
+   "per100g": 22.9,
+   "source": "usda",
+   "fdcId": 167575,
+   "usdaName": "Ice creams, vanilla"
+  },
+  {
+   "id": "usda-168773",
+   "name": "Custard (made with milk)",
+   "category": "Dairy",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 17.6,
+   "per100g": 17.6,
+   "source": "usda",
+   "fdcId": 168773,
+   "usdaName": "Egg custards, dry mix, prepared with whole milk"
+  },
+  {
+   "id": "usda-168778",
+   "name": "Chocolate pudding",
+   "category": "Dairy",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 23,
+   "per100g": 23,
+   "source": "usda",
+   "fdcId": 168778,
+   "usdaName": "Puddings, chocolate, ready-to-eat"
+  },
+  {
+   "id": "usda-170899",
+   "name": "Cheddar cheese",
+   "category": "Dairy",
+   "serving": {
+    "label": "1 slice (20 g)",
+    "grams": 20
+   },
+   "netCarbs": 0.4,
+   "per100g": 2.1,
+   "source": "usda",
+   "fdcId": 170899,
+   "usdaName": "Cheese, cheddar, sharp, sliced"
+  },
+  {
+   "id": "usda-170845",
+   "name": "Mozzarella cheese",
+   "category": "Dairy",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 0.7,
+   "per100g": 2.4,
+   "source": "usda",
+   "fdcId": 170845,
+   "usdaName": "Cheese, mozzarella, whole milk"
+  },
+  {
+   "id": "usda-169098",
+   "name": "Orange juice",
+   "category": "Drinks",
+   "serving": {
+    "label": "1 glass (200 ml)",
+    "grams": 200
+   },
+   "netCarbs": 20.4,
+   "per100g": 10.2,
+   "source": "usda",
+   "fdcId": 169098,
+   "usdaName": "Orange juice, raw (Includes foods for USDA's Food Distribution Program)"
+  },
+  {
+   "id": "usda-173933",
+   "name": "Apple juice",
+   "category": "Drinks",
+   "serving": {
+    "label": "1 glass (200 ml)",
+    "grams": 200
+   },
+   "netCarbs": 22.2,
+   "per100g": 11.1,
+   "source": "usda",
+   "fdcId": 173933,
+   "usdaName": "Apple juice, canned or bottled, unsweetened, without added ascorbic acid"
+  },
+  {
+   "id": "usda-173042",
+   "name": "Grape juice",
+   "category": "Drinks",
+   "serving": {
+    "label": "1 glass (200 ml)",
+    "grams": 200
+   },
+   "netCarbs": 29.2,
+   "per100g": 14.6,
+   "source": "usda",
+   "fdcId": 173042,
+   "usdaName": "Grape juice, canned or bottled, unsweetened, without added ascorbic acid"
+  },
+  {
+   "id": "usda-174852",
+   "name": "Cola, regular",
+   "category": "Drinks",
+   "serving": {
+    "label": "1 can (330 ml)",
+    "grams": 340
+   },
+   "netCarbs": 35.4,
+   "per100g": 10.4,
+   "source": "usda",
+   "fdcId": 174852,
+   "usdaName": "Beverages, carbonated, cola, regular"
+  },
+  {
+   "id": "usda-173205",
+   "name": "Lemonade / lemon-lime soda, regular",
+   "category": "Drinks",
+   "serving": {
+    "label": "1 can (330 ml)",
+    "grams": 340
+   },
+   "netCarbs": 35.4,
+   "per100g": 10.4,
+   "source": "usda",
+   "fdcId": 173205,
+   "usdaName": "Beverages, carbonated, lemon-lime soda, no caffeine"
+  },
+  {
+   "id": "usda-169677",
+   "name": "Crisps (potato chips)",
+   "category": "Snacks",
+   "serving": {
+    "label": "1 small packet (30 g)",
+    "grams": 30
+   },
+   "netCarbs": 15.2,
+   "per100g": 50.7,
+   "source": "usda",
+   "fdcId": 169677,
+   "usdaName": "Snacks, potato chips, plain, salted",
+   "note": "Check the packet size"
+  },
+  {
+   "id": "usda-167959",
+   "name": "Popcorn, air-popped",
+   "category": "Snacks",
+   "serving": {
+    "label": "10 g (about 1¼ cups)",
+    "grams": 10
+   },
+   "netCarbs": 6.3,
+   "per100g": 63.3,
+   "source": "usda",
+   "fdcId": 167959,
+   "usdaName": "Snacks, popcorn, air-popped"
+  },
+  {
+   "id": "usda-167555",
+   "name": "Pretzels",
+   "category": "Snacks",
+   "serving": {
+    "label": "30 g",
+    "grams": 30
+   },
+   "netCarbs": 23.1,
+   "per100g": 77,
+   "source": "usda",
+   "fdcId": 167555,
+   "usdaName": "Snacks, pretzels, hard, plain, salted"
+  },
+  {
+   "id": "usda-170250",
+   "name": "Rice cakes",
+   "category": "Snacks",
+   "serving": {
+    "label": "1 cake (9 g)",
+    "grams": 9
+   },
+   "netCarbs": 7,
+   "per100g": 77.3,
+   "source": "usda",
+   "fdcId": 170250,
+   "usdaName": "Snacks, rice cakes, brown rice, plain, unsalted"
+  },
+  {
+   "id": "usda-172746",
+   "name": "Salty crackers (saltines)",
+   "category": "Snacks",
+   "serving": {
+    "label": "5 crackers (15 g)",
+    "grams": 15
+   },
+   "netCarbs": 10.7,
+   "per100g": 71.2,
+   "source": "usda",
+   "fdcId": 172746,
+   "usdaName": "Crackers, saltines (includes oyster, soda, soup)"
+  },
+  {
+   "id": "usda-171867",
+   "name": "Marie biscuits",
+   "category": "Snacks",
+   "serving": {
+    "label": "2 biscuits (15 g)",
+    "grams": 15
+   },
+   "netCarbs": 10.1,
+   "per100g": 67,
+   "source": "usda",
+   "fdcId": 171867,
+   "usdaName": "Cookies, Marie biscuit"
+  },
+  {
+   "id": "usda-174950",
+   "name": "Butter biscuits",
+   "category": "Snacks",
+   "serving": {
+    "label": "2 biscuits (15 g)",
+    "grams": 15
+   },
+   "netCarbs": 10.2,
+   "per100g": 68.1,
+   "source": "usda",
+   "fdcId": 174950,
+   "usdaName": "Cookies, butter, commercially prepared, enriched"
+  },
+  {
+   "id": "usda-172716",
+   "name": "Choc chip cookie",
+   "category": "Snacks",
+   "serving": {
+    "label": "1 cookie (10 g)",
+    "grams": 10
+   },
+   "netCarbs": 6.3,
+   "per100g": 63.4,
+   "source": "usda",
+   "fdcId": 172716,
+   "usdaName": "Cookies, chocolate chip, commercially prepared, regular, higher fat, enriched"
+  },
+  {
+   "id": "usda-172718",
+   "name": "Chocolate cream biscuit (Oreo-type)",
+   "category": "Snacks",
+   "serving": {
+    "label": "1 biscuit (11 g)",
+    "grams": 11
+   },
+   "netCarbs": 7.5,
+   "per100g": 68.1,
+   "source": "usda",
+   "fdcId": 172718,
+   "usdaName": "Cookies, chocolate sandwich, with creme filling, regular"
+  },
+  {
+   "id": "usda-167954",
+   "name": "Cereal / granola bar",
+   "category": "Snacks",
+   "serving": {
+    "label": "1 bar (28 g)",
+    "grams": 28
+   },
+   "netCarbs": 17.6,
+   "per100g": 62.7,
+   "source": "usda",
+   "fdcId": 167954,
+   "usdaName": "Snacks, granola bars, soft, uncoated, plain"
+  },
+  {
+   "id": "usda-174289",
+   "name": "Hummus",
+   "category": "Snacks",
+   "serving": {
+    "label": "2 tbsp (30 g)",
+    "grams": 30
+   },
+   "netCarbs": 2.9,
+   "per100g": 9.5,
+   "source": "usda",
+   "fdcId": 174289,
+   "usdaName": "Hummus, commercial"
+  },
+  {
+   "id": "usda-169640",
+   "name": "Honey",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 tsp (7 g)",
+    "grams": 7
+   },
+   "netCarbs": 5.8,
+   "per100g": 82.2,
+   "source": "usda",
+   "fdcId": 169640,
+   "usdaName": "Honey"
+  },
+  {
+   "id": "usda-169655",
+   "name": "Sugar",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 tsp (4 g)",
+    "grams": 4
+   },
+   "netCarbs": 4,
+   "per100g": 100,
+   "source": "usda",
+   "fdcId": 169655,
+   "usdaName": "Sugars, granulated"
+  },
+  {
+   "id": "usda-169641",
+   "name": "Jam",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 tsp (7 g)",
+    "grams": 7
+   },
+   "netCarbs": 4.7,
+   "per100g": 67.8,
+   "source": "usda",
+   "fdcId": 169641,
+   "usdaName": "Jams and preserves"
+  },
+  {
+   "id": "usda-169578",
+   "name": "Pancake syrup",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 tbsp (20 g)",
+    "grams": 20
+   },
+   "netCarbs": 12.3,
+   "per100g": 61.5,
+   "source": "usda",
+   "fdcId": 169578,
+   "usdaName": "Syrups, table blends, pancake"
+  },
+  {
+   "id": "usda-172470",
+   "name": "Peanut butter",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 tbsp (16 g)",
+    "grams": 16
+   },
+   "netCarbs": 2.8,
+   "per100g": 17.3,
+   "source": "usda",
+   "fdcId": 172470,
+   "usdaName": "Peanut butter, smooth style, without salt"
+  },
+  {
+   "id": "usda-168556",
+   "name": "Tomato sauce (ketchup)",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 tbsp (15 g)",
+    "grams": 15
+   },
+   "netCarbs": 4.1,
+   "per100g": 27.1,
+   "source": "usda",
+   "fdcId": 168556,
+   "usdaName": "Catsup"
+  },
+  {
+   "id": "usda-167587",
+   "name": "Milk chocolate",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "10 g",
+    "grams": 10
+   },
+   "netCarbs": 5.6,
+   "per100g": 56,
+   "source": "usda",
+   "fdcId": 167587,
+   "usdaName": "Candies, milk chocolate"
+  },
+  {
+   "id": "usda-167991",
+   "name": "Jelly beans",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "10 beans (11 g)",
+    "grams": 11
+   },
+   "netCarbs": 10.3,
+   "per100g": 93.4,
+   "source": "usda",
+   "fdcId": 167991,
+   "usdaName": "Candies, jellybeans"
+  },
+  {
+   "id": "usda-167989",
+   "name": "Jelly sweets / gums",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "10 g",
+    "grams": 10
+   },
+   "netCarbs": 9.9,
+   "per100g": 98.8,
+   "source": "usda",
+   "fdcId": 167989,
+   "usdaName": "Candies, gumdrops, starch jelly pieces"
+  },
+  {
+   "id": "usda-167995",
+   "name": "Marshmallows",
+   "category": "Sweets & spreads",
+   "serving": {
+    "label": "1 large (7 g)",
+    "grams": 7
+   },
+   "netCarbs": 5.7,
+   "per100g": 81.2,
+   "source": "usda",
+   "fdcId": 167995,
+   "usdaName": "Candies, marshmallows"
+  },
+  {
+   "id": "usda-170693",
+   "name": "Hamburger, plain (takeaway)",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "1 burger (90 g)",
+    "grams": 90
+   },
+   "netCarbs": 26.8,
+   "per100g": 29.8,
+   "source": "usda",
+   "fdcId": 170693,
+   "usdaName": "Fast foods, hamburger; single, regular patty; plain"
+  },
+  {
+   "id": "usda-170317",
+   "name": "Cheese pizza",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "1 slice (70 g)",
+    "grams": 70
+   },
+   "netCarbs": 18.8,
+   "per100g": 26.8,
+   "source": "usda",
+   "fdcId": 170317,
+   "usdaName": "Pizza, cheese topping, regular crust, frozen, cooked"
+  },
+  {
+   "id": "usda-172111",
+   "name": "Chicken nuggets",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "4 nuggets (64 g)",
+    "grams": 64
+   },
+   "netCarbs": 9.3,
+   "per100g": 14.5,
+   "source": "usda",
+   "fdcId": 172111,
+   "usdaName": "Chicken, nuggets, dark and white meat, precooked, frozen, not reheated"
+  },
+  {
+   "id": "usda-170718",
+   "name": "Fried chicken strips / popcorn chicken",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 14,
+   "per100g": 14,
+   "source": "usda",
+   "fdcId": 170718,
+   "usdaName": "Fast foods, chicken, breaded and fried, boneless pieces, plain"
+  },
+  {
+   "id": "usda-174195",
+   "name": "Fish fingers",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "3 fingers (75 g)",
+    "grams": 75
+   },
+   "netCarbs": 15.2,
+   "per100g": 20.2,
+   "source": "usda",
+   "fdcId": 174195,
+   "usdaName": "Fish, fish sticks, frozen, prepared"
+  },
+  {
+   "id": "usda-169033",
+   "name": "Spaghetti with tomato sauce",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "150 g",
+    "grams": 150
+   },
+   "netCarbs": 24.2,
+   "per100g": 16.1,
+   "source": "usda",
+   "fdcId": 169033,
+   "usdaName": "Restaurant, Italian, spaghetti with pomodoro sauce (no meat)"
+  },
+  {
+   "id": "usda-167680",
+   "name": "Spaghetti bolognese",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "150 g",
+    "grams": 150
+   },
+   "netCarbs": 22.2,
+   "per100g": 14.8,
+   "source": "usda",
+   "fdcId": 167680,
+   "usdaName": "Restaurant, Italian, spaghetti with meat sauce"
+  },
+  {
+   "id": "usda-171176",
+   "name": "Tomato soup",
+   "category": "Meals & takeaway",
+   "serving": {
+    "label": "1 cup (250 ml)",
+    "grams": 250
+   },
+   "netCarbs": 17.5,
+   "per100g": 7,
+   "source": "usda",
+   "fdcId": 171176,
+   "usdaName": "Soup, tomato, canned, prepared with equal volume water, commercial"
+  },
+  {
+   "id": "usda-173424",
+   "name": "Egg, boiled",
+   "category": "Protein",
+   "serving": {
+    "label": "1 egg (50 g)",
+    "grams": 50
+   },
+   "netCarbs": 0.6,
+   "per100g": 1.1,
+   "source": "usda",
+   "fdcId": 173424,
+   "usdaName": "Egg, whole, cooked, hard-boiled"
+  },
+  {
+   "id": "usda-171477",
+   "name": "Chicken breast, roasted",
+   "category": "Protein",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 0,
+   "per100g": 0,
+   "source": "usda",
+   "fdcId": 171477,
+   "usdaName": "Chicken, broilers or fryers, breast, meat only, cooked, roasted"
+  },
+  {
+   "id": "usda-174033",
+   "name": "Beef mince, cooked",
+   "category": "Protein",
+   "serving": {
+    "label": "100 g",
+    "grams": 100
+   },
+   "netCarbs": 0,
+   "per100g": 0,
+   "source": "usda",
+   "fdcId": 174033,
+   "usdaName": "Beef, ground, 85% lean meat / 15% fat, patty, cooked, pan-broiled"
+  },
+  {
+   "id": "usda-174614",
+   "name": "Vienna / hot dog sausage",
+   "category": "Protein",
+   "serving": {
+    "label": "1 sausage (45 g)",
+    "grams": 45
+   },
+   "netCarbs": 1.2,
+   "per100g": 2.7,
+   "source": "usda",
+   "fdcId": 174614,
+   "usdaName": "Frankfurter, beef, heated"
+  }
+ ]
+}

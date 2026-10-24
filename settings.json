@@ -1,0 +1,10 @@
+{
+ "icr": null,
+ "cf": null,
+ "targetBg": null,
+ "roundTo": 0.5,
+ "maxDose": null,
+ "hypoThreshold": 4.0,
+ "negativeCorrection": true,
+ "updatedAt": null
+}
