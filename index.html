@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>DiaBuddy Carb Counter</title>
   <meta name="description" content="Carb counting and insulin dose calculator for the family.">
-  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#fbf6f0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1714" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -15,6 +15,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -23,14 +24,15 @@
     <main class="screen" id="screen-meal" data-screen="meal">
       <header class="nav">
         <p class="eyebrow">DiaBuddy</p>
-        <h1 class="large-title">Meal</h1>
+        <h1 class="large-title" id="greeting">Hello 👋</h1>
+        <p class="greeting-sub" id="greeting-sub">Let’s count what he’s eating</p>
       </header>
       <div id="setup-banner"></div>
       <div id="cgm-card"></div>
       <div class="search-bar">
         <label class="search">
           <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="meal-search" type="search" placeholder="Search foods" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+          <input id="meal-search" type="search" placeholder="What’s on his plate?" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
         </label>
       </div>
       <div class="quick-actions">
@@ -55,6 +57,7 @@
       <header class="nav">
         <p class="eyebrow">DiaBuddy</p>
         <h1 class="large-title">Foods</h1>
+        <p class="greeting-sub">Everything we know the carbs for</p>
       </header>
       <div class="search-bar">
         <label class="search">
@@ -72,6 +75,7 @@
       <header class="nav">
         <p class="eyebrow">DiaBuddy</p>
         <h1 class="large-title">Settings</h1>
+        <p class="greeting-sub">His numbers and how DiaBuddy works</p>
       </header>
       <div id="settings-body"></div>
     </main>
@@ -86,7 +90,7 @@
           <span class="tray-carbs" id="tray-carbs">0 g</span>
           <span class="tray-count" id="tray-count">carbs</span>
         </button>
-        <button class="btn btn-primary btn-compact" data-action="calculate">Calculate dose</button>
+        <button class="btn btn-primary btn-compact" data-action="calculate">Work out dose</button>
       </div>
     </div>
     <div class="tray-body" id="tray-body"></div>
