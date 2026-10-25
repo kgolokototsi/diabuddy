@@ -1,7 +1,7 @@
 // Offline support. Bump VERSION when shipping changes to the app shell.
-const VERSION = 'diabuddy-v2';
+const VERSION = 'diabuddy-v3';
 const SHELL = [
-  './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'admin.js', 'spring.js', 'config.js',
+  './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'admin.js', 'spring.js', 'config.js', 'cgm.js',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'data/foods.json',
 ];
 // Shared files the admin can change: always try the network first.

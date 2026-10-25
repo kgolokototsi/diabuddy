@@ -66,6 +66,44 @@ The token is stored only on that phone and is sent only to GitHub. To remove it,
 
 Family phones pick up changes the next time DiaBuddy is opened or brought back to the front.
 
+## Dexcom readings
+
+DiaBuddy can show his latest Dexcom reading and fill in the BG on the dose screen. A small relay runs on your free Cloudflare account (`worker/worker.js`). It logs into **Dexcom Share** and passes on only the latest reading. His Dexcom password is stored in Cloudflare and never reaches DiaBuddy or GitHub.
+
+How the readings are used:
+
+| Reading | What DiaBuddy does |
+| --- | --- |
+| 10 minutes old or newer | Fills in the BG field and shows the trend arrow and age. You can always type over it. |
+| Older than 10 minutes | Shows it but doesn't use it. Do a finger-prick or check the Dexcom app. |
+| LOW or HIGH | Doesn't use it. Do a finger-prick. |
+| Rising or falling fast (⇈ ⇊) | Fills it in, with a warning to double-check before giving insulin. |
+
+> Dexcom Share is the service behind the Dexcom follow feature. Dexcom doesn't officially support other apps using it, so it can stop working without warning. If it does, the app says so and you type the BG as before.
+
+### Set it up (admin, once)
+
+1. **Dexcom app:** turn on Share and make sure at least one follower is invited. Share only works with a follower.
+2. **DiaBuddy:** go to Settings → **Set up Dexcom readings** and tap **Generate a new family key**. Copy the key and leave this screen open.
+3. **Cloudflare:** create a free account at https://dash.cloudflare.com/sign-up.
+4. Go to **Workers & Pages → Create → Create Worker**. Name it `diabuddy-dexcom` and tap **Deploy**.
+5. Tap **Edit code**, delete the sample code, paste in everything from [worker/worker.js](https://raw.githubusercontent.com/kgolokototsi/diabuddy/main/worker/worker.js), then tap **Deploy**.
+6. Open the Worker's **Settings → Variables and Secrets** and add these, then tap **Deploy**:
+
+   | Type | Name | Value |
+   | --- | --- | --- |
+   | Text | `DEXCOM_REGION` | `ous` (outside the US) |
+   | Text | `ALLOWED_ORIGIN` | `https://kgolokototsi.github.io` |
+   | Secret | `DEXCOM_USERNAME` | his Dexcom username or email, the one his Dexcom app signs in with |
+   | Secret | `DEXCOM_PASSWORD` | that account's password |
+   | Secret | `FAMILY_KEY` | the key from step 2 |
+
+7. Copy the Worker's address, which looks like `https://diabuddy-dexcom.<your-name>.workers.dev`.
+8. **DiaBuddy:** paste that address into **Relay address**, tap **Test connection** (it should show his current reading), then tap **Save**.
+9. Tap **Share the family link** and send it to family phones. Each person opens it once.
+
+To lock someone out, generate a new key and put it in Cloudflare as `FAMILY_KEY`. Then share the new family link with everyone who should keep access. If his Dexcom password changes, update `DEXCOM_PASSWORD` in Cloudflare.
+
 ## How the dose is worked out
 
 ```
@@ -91,6 +129,7 @@ It's a static site with no build step: plain HTML, CSS and ES modules, hosted on
 | `foods.js` | Food search, Open Food Facts |
 | `admin.js` | GitHub read/write of the shared files |
 | `spring.js` | Spring animations |
+| `cgm.js`, `worker/worker.js` | Dexcom readings: app side, and the Cloudflare relay |
 | `sw.js` | Offline cache. Bump `VERSION` when you change app files. |
 | `data/foods.json` | Notebook + USDA foods, built by `scripts/build-foods.mjs` |
 | `data/za-products.json` | SA packaged products, built by `scripts/build-za-products.mjs` |

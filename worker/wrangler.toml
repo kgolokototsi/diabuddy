@@ -1,0 +1,10 @@
+name = "diabuddy-dexcom"
+main = "worker.js"
+compatibility_date = "2026-10-01"
+
+[vars]
+DEXCOM_REGION = "ous"
+ALLOWED_ORIGIN = "https://kgolokototsi.github.io"
+
+# Secrets – set these with `npx wrangler secret put <NAME>` or in the dashboard:
+#   DEXCOM_USERNAME, DEXCOM_PASSWORD, FAMILY_KEY

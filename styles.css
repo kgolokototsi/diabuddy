@@ -328,6 +328,28 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 }
 .empty strong { display: block; color: var(--label); font-size: 1.0625rem; margin-bottom: 4px; }
 
+/* ---------- Dexcom reading ---------- */
+
+#cgm-card .section { margin-top: 8px; }
+.cgm-row { gap: 14px; min-height: 64px; }
+.cgm-value {
+  flex: none;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 2rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--label);
+}
+.cgm-arrow { font-size: 1.5rem; font-weight: 600; color: var(--tint); }
+.cgm-low .cgm-value, .cgm-low .cgm-arrow { color: var(--red); }
+.cgm-stale .cgm-value, .cgm-stale .cgm-arrow { color: var(--label-3); }
+.cgm-note { min-height: 0; padding-top: 0; padding-bottom: 12px; }
+.cgm-note::before { display: none; }
+
 /* ---------- Banners ---------- */
 
 .banner {
