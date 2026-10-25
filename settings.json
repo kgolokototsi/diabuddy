@@ -1,10 +1,10 @@
 {
- "icr": null,
- "cf": null,
- "targetBg": null,
+ "icr": 10,
+ "cf": 7,
+ "targetBg": 5,
  "roundTo": 0.5,
  "maxDose": null,
- "hypoThreshold": 4.0,
+ "hypoThreshold": 4,
  "negativeCorrection": true,
- "updatedAt": null
+ "updatedAt": "2026-10-25T05:39:49.147Z"
 }
