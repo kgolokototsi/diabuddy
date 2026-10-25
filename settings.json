@@ -6,5 +6,6 @@
  "maxDose": null,
  "hypoThreshold": 4,
  "negativeCorrection": true,
- "updatedAt": "2026-10-25T05:39:49.147Z"
+ "updatedAt": "2026-10-25T05:39:49.147Z",
+ "cgmUrl": "https://diabuddy-dexcom.diabuddy-dexcom.workers.dev"
 }
