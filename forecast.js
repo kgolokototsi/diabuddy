@@ -106,3 +106,85 @@ export function recentSlope(history, now = Date.now()) {
     .sort((a, b) => Math.abs(cur.t - a.t - 15 * 60000) - Math.abs(cur.t - b.t - 15 * 60000))[0];
   return before ? (cur.v - before.v) / ((cur.t - before.t) / 60000) : null;
 }
+
+// ---------------------------------------------------------------- 30/60-minute forecast
+//
+// A small personal model, refitted each night on the relay (worker/model.js) from his own
+// readings and log. It predicts the change in BG 30 and 60 minutes ahead (predicting the
+// change rather than the level reduces bias; Zhu et al., IEEE JBHI) from:
+//   his BG now and how it moved over the last 5, 15 and 30 minutes,
+//   insulin on board (linear over 4 hours) and carbs on board (0.5 g/min after 15 minutes),
+//   and time of day.
+// The same code builds the inputs for training (relay) and for the live forecast (app).
+
+export const MODEL_FEATURES = ['bias', 'bg', 'd5', 'd15', 'd30', 'iob', 'cob', 'sin', 'cos'];
+const MIN_MS = 60000;
+const IOB_MIN = 240;
+const COB_RATE = 0.5;
+const COB_DELAY = 15;
+
+// The reading nearest to t, if one is within tol. points: sorted { t, v } (mmol/L).
+export function valueAt(points, t, tol = 7 * MIN_MS) {
+  let lo = 0;
+  let hi = points.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].t < t) lo = mid + 1; else hi = mid;
+  }
+  let best = null;
+  for (const i of [lo - 1, lo]) {
+    const p = points[i];
+    if (p && Math.abs(p.t - t) <= tol && (!best || Math.abs(p.t - t) < Math.abs(best.t - t))) best = p;
+  }
+  return best ? best.v : null;
+}
+
+// Insulin and carbs still working at time t, from the log.
+export function onBoard(events, t) {
+  let iob = 0;
+  let cob = 0;
+  for (const e of events) {
+    const at = Date.parse(e.at);
+    if (!(at <= t)) continue;
+    const m = (t - at) / MIN_MS;
+    const units = e.insulinGiven ?? e.calculated?.rounded ?? 0;
+    if (units > 0 && m < IOB_MIN) iob += units * (1 - m / IOB_MIN);
+    const carbs = e.type === 'correction' ? 0 : e.carbs || 0;
+    if (carbs > 0) cob += Math.max(0, carbs - COB_RATE * Math.max(0, m - COB_DELAY));
+  }
+  return { iob, cob };
+}
+
+// The model's inputs at time t, or null without enough recent readings.
+export function featureRow(points, events, t) {
+  const g0 = valueAt(points, t, 4 * MIN_MS);
+  const g5 = valueAt(points, t - 5 * MIN_MS, 3 * MIN_MS);
+  const g15 = valueAt(points, t - 15 * MIN_MS, 4 * MIN_MS);
+  const g30 = valueAt(points, t - 30 * MIN_MS, 5 * MIN_MS);
+  if (g0 == null || g5 == null || g15 == null || g30 == null) return null;
+  const { iob, cob } = onBoard(events, t);
+  const hour = ((t / 3600000) + 2) % 24; // South African time
+  const a = (2 * Math.PI * hour) / 24;
+  return [1, g0, g0 - g5, g0 - g15, g0 - g30, iob, cob, Math.sin(a), Math.cos(a)];
+}
+
+const dot = (coef, x) => coef.reduce((s, c, i) => s + c * x[i], 0);
+const clampBg = (v) => Math.min(22.2, Math.max(2.2, v));
+
+// Live forecast from his latest readings. history: [{ mmol, time }] (last hour);
+// events: recent log entries. Returns null when there's no ready model or recent data.
+export function forecastNow(model, history, events, { low = 4 } = {}) {
+  if (!model?.ready30) return null;
+  const points = (history || []).map((p) => ({ t: Date.parse(p.time), v: p.mmol })).filter((p) => Number.isFinite(p.t)).sort((a, b) => a.t - b.t);
+  const now = points.at(-1);
+  if (!now) return null;
+  const x = featureRow(points, events || [], now.t);
+  if (!x) return null;
+  const at = (coef, q) => {
+    const v = clampBg(now.v + dot(coef, x));
+    return { v: Math.round(v * 10) / 10, lo: Math.round(clampBg(v + q[0]) * 10) / 10, hi: Math.round(clampBg(v + q[1]) * 10) / 10 };
+  };
+  const at30 = at(model.coef30, model.eval.q30);
+  const at60 = model.ready60 ? at(model.coef60, model.eval.q60) : null;
+  return { from: now.t, bg: now.v, at30, at60, mayGoLow: at30.lo < low && now.v >= low };
+}

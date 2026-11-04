@@ -33,6 +33,7 @@ Other things you can do:
 
 The **Insights** tab shows what his own history says. It never works out or suggests a dose.
 
+- **Next hour** (also dotted on the Home chart): his own forecast for 30 minutes and 1 hour ahead, with its usual range. It's a small model refitted each night from his readings, insulin on board and carbs on board, with the rule that insulin can only lower it and carbs can only raise it. It's tested on his most recent days and only shown if it beats assuming his BG stays the same; Insights shows how accurate it has been. If the low end of the range is below 4, Home says to check him.
 - **Low risk now:** from his current level and trend, how often he went low within 45 minutes in similar moments.
 - **Forecasts:** for a **meal** (from the meal in progress or typed carbs), a **low treatment** (15 g, the 15-15 rule: where he usually is at the 15-minute recheck and how often a second 15 g was needed) and a **correction** (where he usually is 3 hours later). Each shows a range from his most similar past ones, and how many it's based on.
 - **Time of day** and **After meals:** time in range by part of the day, and whether meals of each kind usually end high or low 3 hours later.

@@ -2,7 +2,7 @@ import { calculateDose, parseBg, lineCarbs, isConfigured, BG_MIN, BG_MAX } from 
 import { loadFoods, searchFoods, loadPackaged, lookupBarcode, CATEGORIES, SOURCE_LABEL } from './foods.js';
 import { spring, project, rubberband, VelocityTracker } from './spring.js';
 import { RELAY_URL, APP_VERSION } from './config.js';
-import { forecastResponse, lowRisk, recentSlope } from './forecast.js';
+import { forecastResponse, lowRisk, recentSlope, forecastNow } from './forecast.js';
 import { alertSupport, alertsOn, turnOnAlerts, turnOffAlerts, sendTestAlert } from './alerts.js';
 import { getCgmKey, setCgmKey, consumeJoinCode, joinCodeFrom, inviteLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
 
@@ -58,6 +58,8 @@ const state = {
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
   alerts: { on: null },
+  model: store.get('forecast-model', null), // his 30/60-minute forecast model, refitted nightly
+  recentEvents: [],
   insights: { data: null, at: 0, loading: false, error: null, summary: null, kind: 'meal', days: 14, table: false, carbs: null, units: null, bgTyped: null, mealOfDay: null },
   me: store.get('me', null), // { id, name, role, legacy } from the relay
   githubFoods: [],
@@ -125,7 +127,9 @@ function forgetThisPhone() {
   state.me = null;
   state.settings = null;
   state.cgm = { reading: null, error: null, at: 0, loading: false };
-  for (const k of ['me', 'settings', 'relay-foods', 'pending-events']) store.set(k, null);
+  for (const k of ['me', 'settings', 'relay-foods', 'pending-events', 'forecast-model']) store.set(k, null);
+  state.model = null;
+  state.recentEvents = [];
   try { localStorage.removeItem('diabuddy.meal'); } catch {}
   // The relay forgets this phone's alerts with the phone; drop the browser's side too.
   state.alerts = { on: null };
@@ -403,23 +407,51 @@ function renderCgmCard() {
     <span class="row-main"><span class="row-title">mmol/L · ${esc(r.trendText)}</span>
       <span class="row-sub">${sourceName(r)} · ${readingAge(r)}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
   </button>
-  ${trendChart(r.history)}`);
+  ${trendChart(r.history, Date.now(), cgmForecast())}`);
+}
+
+// His forecast for the next 30/60 minutes, if his model is ready and the reading is fresh.
+function cgmForecast() {
+  const r = state.cgm.reading;
+  const low = state.settings?.hypoThreshold ?? 4;
+  // When he's already low the only message is to treat it, so no forecast then.
+  if (!r || r.low || r.high || r.ageMinutes > FRESH_MINUTES || r.mmol < low) return null;
+  return forecastNow(state.model, r.history, recentEvents(), { low });
+}
+
+// The last day of the log, including entries still waiting to be sent.
+function recentEvents() {
+  const seen = new Set();
+  return [...store.get(PENDING_KEY, []), ...(state.recentEvents || [])].filter((e) => e && !seen.has(e.id) && seen.add(e.id));
+}
+
+async function loadModel() {
+  if (!getCgmKey()) return;
+  try {
+    const { model } = await relayFetch(RELAY_URL, '/insights/model');
+    state.model = model;
+    state.modelAt = Date.now();
+    store.set('forecast-model', model);
+    renderCgmCard();
+  } catch {}
 }
 
 const clockTime = (iso) => new Date(iso).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Small last-hour chart of the real readings only: no smoothing, no made-up points.
-function trendChart(history = [], now = Date.now()) {
+// fc: his 30/60-minute forecast (forecast.js forecastNow), drawn dotted past "now".
+function trendChart(history = [], now = Date.now(), fc = null) {
   const points = history
     .map((p) => ({ mmol: p.mmol, t: Date.parse(p.time), time: p.time }))
     .filter((p) => now - p.t <= 60 * 60000)
     .sort((a, b) => a.t - b.t);
 
   const W = 300, H = 64, padX = 8, padY = 8;
-  const values = points.map((p) => p.mmol);
+  const ahead = fc ? (fc.at60 ? 60 : 30) * 60000 : 0;
+  const values = [...points.map((p) => p.mmol), ...(fc ? [fc.at30.lo, fc.at30.hi, ...(fc.at60 ? [fc.at60.lo, fc.at60.hi] : [])] : [])];
   const lo = Math.min(3, Math.min(...values) - 0.5);
   const hi = Math.max(11, Math.max(...values) + 0.5);
-  const x = (t) => padX + ((t - (now - 60 * 60000)) / (60 * 60000)) * (W - 2 * padX);
+  const x = (t) => padX + ((t - (now - 60 * 60000)) / (60 * 60000 + ahead)) * (W - 2 * padX);
   const y = (v) => padY + (1 - (v - lo) / (hi - lo)) * (H - 2 * padY);
   const low = state.settings?.hypoThreshold ?? 4;
 
@@ -440,7 +472,7 @@ function trendChart(history = [], now = Date.now()) {
   const gaps = segments.slice(1).map((s, i) => [segments[i].at(-1).t, s[0].t]);
   if (gapSince != null) gaps.push([gapSince, now]);
   const gapRects = gaps.map(([a, b]) => {
-    const left = x(a), right = b >= now ? W : x(b); // a gap up to now runs to the chart's edge
+    const left = x(a), right = b >= now ? (fc ? x(now) : W) : x(b); // a gap up to now runs to the chart's edge
     return `<rect class="trend-gap" x="${left.toFixed(1)}" y="0" width="${(right - left).toFixed(1)}" height="${H}" rx="4" />`;
   }).join('');
 
@@ -457,14 +489,31 @@ function trendChart(history = [], now = Date.now()) {
     : 'One reading in the last hour';
   const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ') || 'no readings'}. ${change === 'No readings in the last hour' ? '' : change + '. '}Shaded band is ${low} to ${TARGET_TOP} mmol/L.`;
 
+  // The forecast: a dotted line from his latest reading, inside its usual range.
+  let fcSvg = '';
+  let fcText = '';
+  if (fc) {
+    const steps = [{ t: fc.from, v: fc.bg, lo: fc.bg, hi: fc.bg }, { t: fc.from + 30 * 60000, ...fc.at30 }, ...(fc.at60 ? [{ t: fc.from + 60 * 60000, ...fc.at60 }] : [])];
+    const xy = (t, v) => `${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+    const band = [...steps.map((p) => xy(p.t, p.hi)), ...[...steps].reverse().map((p) => xy(p.t, p.lo))].join(' ');
+    fcSvg = `<line class="trend-now" x1="${x(now).toFixed(1)}" x2="${x(now).toFixed(1)}" y1="0" y2="${H}" />
+      <polygon class="trend-fc-band" points="${band}" />
+      <polyline class="trend-fc" points="${steps.map((p) => xy(p.t, p.v)).join(' ')}" />
+      ${steps.slice(1).map((p, i) => `<circle class="trend-fc-dot" cx="${x(p.t).toFixed(1)}" cy="${y(p.v).toFixed(1)}" r="3"><title>Forecast in ${i ? '1 hour' : '30 minutes'}: ${fmt(p.v)} (${fmt(p.lo)}–${fmt(p.hi)})</title></circle>`).join('')}`;
+    fcText = `<p class="trend-forecast">Forecast: about <strong>${fmt(fc.at30.v)}</strong> in 30 min (${fmt(fc.at30.lo)}–${fmt(fc.at30.hi)})${fc.at60 ? ` · ${fmt(fc.at60.v)} in 1 h (${fmt(fc.at60.lo)}–${fmt(fc.at60.hi)})` : ''}</p>
+      ${fc.mayGoLow ? `<div class="banner banner-warn trend-warn">${ICON.warn}<div>He could drop below ${fmt(low)} in the next 30 minutes. Check him with a finger-prick; this is a forecast, not a reading.</div></div>` : ''}`;
+  }
+  const fcLabel = fc ? ` Forecast: ${fmt(fc.at30.v)} in 30 minutes, range ${fmt(fc.at30.lo)} to ${fmt(fc.at30.hi)}${fc.at60 ? `; ${fmt(fc.at60.v)} in 1 hour` : ''}.` : '';
+
   return `<div class="trend" role="group" aria-label="Last hour of readings">
-    <svg class="trend-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
+    <svg class="trend-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label + fcLabel)}">
       <rect class="trend-band" x="0" y="${y(TARGET_TOP).toFixed(1)}" width="${W}" height="${(y(low) - y(TARGET_TOP)).toFixed(1)}" rx="6" />
       <line class="trend-low" x1="0" x2="${W}" y1="${y(low).toFixed(1)}" y2="${y(low).toFixed(1)}" />
-      ${gapRects}${lines}${dots}
+      ${gapRects}${fcSvg}${lines}${dots}
     </svg>
-    <div class="trend-caption"><span>1 h ago</span><strong>${esc(change)}</strong><span>now</span></div>
-    <p class="trend-key">Shaded: ${low}–${TARGET_TOP} mmol/L · dashed line: low (${low})</p>
+    <div class="trend-caption"><span>1 h ago</span><strong>${esc(change)}</strong><span>${fc ? `+${fc.at60 ? '1 h' : '30 min'}` : 'now'}</span></div>
+    ${fcText}
+    <p class="trend-key">Shaded: ${low}–${TARGET_TOP} mmol/L · dashed line: low (${low})${fc ? ' · dotted: forecast' : ''}</p>
   </div>`;
 }
 
@@ -549,6 +598,7 @@ async function loadTodayLog() {
     await flushPending();
     const { events } = await relayFetch(cgmUrl(), '/events?days=1');
     state.todayLog = events.filter((e) => isToday(e.at));
+    state.recentEvents = events; // the last 24 hours, for insulin and carbs still working
   } catch {}
   renderHome();
 }
@@ -847,6 +897,7 @@ async function loadInsights({ force = false } = {}) {
       relayFetch(RELAY_URL, '/insights/summary').catch(() => null),
     ]);
     Object.assign(st, { data, summary, at: Date.now(), error: null });
+    if (data.model) { state.model = data.model; store.set('forecast-model', data.model); }
   } catch (err) {
     st.error = err.message;
   }
@@ -879,6 +930,7 @@ function renderInsights() {
     insightsStatus(d),
     insightsSummary(d),
     insightsLowRisk(d),
+    insightsNextHour(d),
     insightsForecast(d),
     insightsTimeOfDay(d),
     insightsMealTypes(d),
@@ -944,6 +996,27 @@ function insightsLowRisk(d) {
   }
   return section('Low risk now', `<div class="row low-risk ${tone}">${tone ? ICON.warn : ''}<span class="row-main">${text}</span></div>`,
     'From his history at this level and trend. Check with a finger-prick if unsure.');
+}
+
+function insightsNextHour(d) {
+  const m = d.model || state.model;
+  const row = (title, sub) => `<div class="row"><span class="row-main"><span class="row-title">${title}</span>${sub ? `<span class="row-sub">${sub}</span>` : ''}</span></div>`;
+  const foot = 'His own model, refitted each night from his readings and log. A forecast, not a reading: check with a finger-prick before acting on it.';
+  if (!m || m.learning) {
+    return section('Next hour', row('Learning his patterns', `${m?.days ?? 0} of ${m?.need ?? 7} days with readings so far. It starts once it has a week to learn from.`), foot);
+  }
+  const e = m.eval;
+  const tested = `Tested on his last ${e.days} days, which it didn’t learn from`;
+  if (!m.ready30) {
+    return section('Next hour', row('Not reliable enough yet', `${tested}, it wasn’t clearly better than assuming his BG stays the same (typical error ${fmt(e.rmse30)} vs ${fmt(e.base30)} mmol/L). It keeps learning each night.`), foot);
+  }
+  const fc = cgmForecast();
+  const now = fc
+    ? row(`In 30 min about ${fmt(fc.at30.v)} <span class="row-range">(${fmt(fc.at30.lo)}–${fmt(fc.at30.hi)})</span>`, fc.at60 ? `In 1 hour about ${fmt(fc.at60.v)} (${fmt(fc.at60.lo)}–${fmt(fc.at60.hi)})` : '')
+    : row('Shown on Home', 'When there’s a reading from the last 10 minutes, with 30 minutes of readings before it.');
+  const lows = e.lows ? ` When he went below ${fmt(d.low)}, it had warned 30 minutes ahead ${e.caught} of ${e.lows} times; ${e.rightWarned} of its ${e.warned} warnings were right.` : '';
+  const acc = row('How accurate it is', `${tested}: typically off by ${fmt(e.rmse30)} mmol/L at 30 min (${fmt(e.base30)} if you assume no change)${m.ready60 ? ` and ${fmt(e.rmse60)} at 1 hour (${fmt(e.base60)})` : '; the 1-hour forecast isn’t reliable yet'}.${lows}`);
+  return section('Next hour', now + acc, foot);
 }
 
 function forecastInput(kind) {
@@ -2508,6 +2581,7 @@ function initEvents() {
     refreshCgm();
     loadTodayLog();
     loadRelayFoods();
+    if (!state.modelAt || Date.now() - state.modelAt > 3 * 3600000) loadModel(); // refitted nightly
   });
 }
 
@@ -2544,6 +2618,7 @@ async function boot() {
   refreshCgm();
   loadTodayLog();
   loadRelayFoods();
+  loadModel();
   addEventListener('online', () => loadTodayLog());
   if (joinCode) openJoin(joinCode);
   // The invite link opened in a tab where DiaBuddy is already running.

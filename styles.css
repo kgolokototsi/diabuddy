@@ -406,6 +406,14 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 .trend-caption strong { font-size: 0.875rem; font-weight: 650; color: var(--label); }
 .trend-key { margin: 2px 0 0; font-size: 0.6875rem; color: var(--label-2); text-align: center; }
 .trend-gap { fill: var(--label-3); opacity: 0.14; stroke: none; }
+.trend-now { stroke: var(--label-3); stroke-width: 1; opacity: 0.6; }
+.trend-chart polygon.trend-fc-band { fill: var(--chart); opacity: 0.16; }
+.trend-chart polyline.trend-fc { stroke: var(--chart); stroke-dasharray: 2 4; opacity: 0.9; }
+.trend-chart circle.trend-fc-dot { fill: var(--card); stroke: var(--chart); stroke-width: 1.5; }
+.trend-forecast { margin: 6px 0 0; font-size: 0.875rem; color: var(--label-2); text-align: center; }
+.trend-forecast strong { color: var(--label); font-weight: 650; }
+.trend-warn { margin: 8px 0 2px; font-size: 0.875rem; }
+.row-range { font-weight: 400; color: var(--label-2); }
 
 /* ---------- Insights ---------- */
 

@@ -528,7 +528,7 @@ async function handleFoods(request, env, url, cors, canWrite) {
 // plan, so a large purge may need running again; the reply says how many are left.
 async function purge(env, what) {
   // Insights are built from readings and the log, so they go with either.
-  const insights = ['insights-day:', 'insights-done'];
+  const insights = ['insights-day:', 'insights-done', 'fcsum:', 'fcrows:', 'forecast-model'];
   const prefixes = {
     glucose: ['glucose:', ...insights],
     events: ['event:', ...insights],
@@ -694,6 +694,7 @@ export default {
       return json({ ...(await readInsights(env)), low, summaries: Boolean(env.ANTHROPIC_API_KEY) }, 200, cors);
     }
     if (path === '/insights/summary') return handleSummary(request, env, device, cors);
+    if (path === '/insights/model' && method === 'GET') return json({ model: await env.LOG.get('forecast-model', 'json') }, 200, cors);
 
     if (path === '/settings' && method === 'GET') {
       if (url.searchParams.get('history')) return json({ history: await settingsHistory(env) }, 200, cors);

@@ -7,6 +7,8 @@
 //
 // Days and times of day are South African time (UTC+2 all year, no daylight saving).
 
+import { dayRows, refit, storeDay, MODEL_KEY } from './model.js';
+
 const MGDL_PER_MMOL = 18.0182;
 const SA_OFFSET_MS = 2 * 3600000;
 const MIN = 60000;
@@ -225,10 +227,16 @@ export async function buildNextDay(env, now = Date.now(), { low = 4 } = {}) {
   if (!date) return null;
 
   const logged = await loggedAround(env, date);
-  const summary = daySummary(date, logged, await eventsAround(env, date), { low });
+  const events = await eventsAround(env, date);
+  const summary = daySummary(date, logged, events, { low });
   if (summary.readings > 0) {
     await env.LOG.put(`insights-day:${date}`, JSON.stringify(summary), { expirationTtl: SUMMARY_TTL_S });
+    const from = saMidnight(date);
+    await storeDay(env, date, dayRows(toPoints(logged), events, from, from + DAY_MS));
     done.dates = [...done.dates, date].filter((d) => d > addDays(today, -KEEP_DAYS - 2)).sort();
+    await env.LOG.put(DONE_KEY, JSON.stringify(done));
+    await refit(env, done.dates, { low, now });
+    return date;
   } else if (date < newest) {
     done.floor = date; // nothing logged this far back: stop going further
   } else {
@@ -250,7 +258,7 @@ export async function invalidateDay(env, atIso, now = Date.now()) {
   if (!dates.some((d) => done.dates.includes(d))) return;
   done.dates = done.dates.filter((d) => !dates.includes(d));
   if (done.floor && dates.some((d) => d <= done.floor)) done.floor = null;
-  await Promise.all(dates.map((d) => env.LOG.delete(`insights-day:${d}`)));
+  await Promise.all(dates.flatMap((d) => [`insights-day:${d}`, `fcsum:${d}`, `fcrows:${d}`].map((k) => env.LOG.delete(k))));
   await env.LOG.put(DONE_KEY, JSON.stringify(done));
 }
 
@@ -291,6 +299,7 @@ export async function readInsights(env, now = Date.now()) {
   const rs = days.flatMap((s) => s.responses);
   const count = (kind) => rs.filter((r) => r.kind === kind).length;
   return {
+    model: await env.LOG.get(MODEL_KEY, 'json'),
     through: days[0]?.date || null,
     coverage: {
       days14: last(14).length, days30: last(30).length, days90: days.length,

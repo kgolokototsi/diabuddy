@@ -17,6 +17,7 @@ DiaBuddy handles a child's glucose readings, insulin doses and dose settings. Un
 | Phone records | Cloudflare KV (`device:<sha256 of key>`) | Admin phones (names and roles only) | Until removed |
 | Invites | Cloudflare KV (`invite:<sha256 of code>`) | No one; they're only redeemed | 24 hours, single use |
 | Insights: one summary per day (time-of-day percentages, meal/low/correction response curves, 15-minute samples) | Cloudflare KV (`insights-day:<date>`, `insights-done`) | Connected phones | 120 days, like the readings |
+| His 30/60-minute forecast model (daily sums for fitting, the last 20 days of 5-minute training rows, the fitted model) | Cloudflare KV (`fcsum:<date>`, `fcrows:<date>`, `forecast-model`); the model is also cached on each phone | Connected phones | Sums 120 days, rows 20 days |
 | Weekly summary written by Claude | Cloudflare KV (`insights-summary:<week>`) | Connected phones | 1 year |
 | Alert subscriptions (a phone's push address and keys) | Cloudflare KV (`push:<device id>`, `high-alert`) | Only the relay | Until the phone turns alerts off or is removed |
 | Dexcom / LibreLinkUp logins, Anthropic API key, alert signing key (`VAPID_PRIVATE_JWK`) | Cloudflare Worker secrets (encrypted) | Only the relay code | Until rotated |

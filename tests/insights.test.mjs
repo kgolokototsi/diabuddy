@@ -199,8 +199,9 @@ test('weekly summary: Claude gets only aggregates; once a week; refresh is admin
 
 test('summary input holds only percentages, medians and counts', async () => {
   const env = { LOG: memoryKv() };
-  await weekOfData(env, Date.now());
-  const input = await summaryInput(env);
+  const now = sa(`${saDate(Date.now())}T12:00:00`); // midday, so yesterday is built
+  await weekOfData(env, now);
+  const input = await summaryInput(env, now);
   assert.ok(input.thisWeek.daysWithReadings >= 3);
   assert.equal(input.mealsThisWeek.lunch.meals, 7);
   assert.ok(!JSON.stringify(input).includes('"at"'));
