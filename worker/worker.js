@@ -310,12 +310,13 @@ async function recordReadings(env, readings, now = Date.now()) {
   }
 }
 
+// The last hour's logged points for one sensor, or for every sensor when source is null.
 async function loggedPoints(env, source, now = Date.now()) {
   if (!env.LOG) return [];
   try {
     const days = [...new Set([dayKey(now - 60 * 60000), dayKey(now)])];
     const logs = await Promise.all(days.map((k) => env.LOG.get(k, 'json')));
-    return logs.flat().filter((p) => p && p.source === source);
+    return logs.flat().filter((p) => p && (source == null || p.source === source));
   } catch {
     return [];
   }
@@ -557,19 +558,27 @@ async function readJson(request, maxChars = 8000) {
 async function latest(env, cors) {
   if (!setUpSources(env).length) return json({ error: 'not_configured' }, 500, cors);
   const { readings, status } = await readSensors(env);
-  if (!readings.length) {
-    const first = Object.entries(status)[0];
-    return json({ error: `${first[0]}_${first[1]}`, sources: status }, 502, cors);
-  }
   const now = Date.now();
-  // The newest sensor's readings from the last hour, oldest first: what the sensor
-  // gave us now plus what the scheduled job logged. Points under 30 s apart are one reading.
-  const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source, now))]
+  if (!readings.length) {
+    // No sensor answered: still send what the scheduled job logged, so the app can
+    // show the trend up to the gap.
+    const logged = await loggedPoints(env, null, now);
+    const newest = logged.reduce((a, p) => (!a || p.time > a.time ? p : a), null);
+    const first = Object.entries(status)[0];
+    return json({ error: `${first[0]}_${first[1]}`, sources: status, history: lastHour(newest ? logged.filter((p) => p.source === newest.source) : [], now) }, 502, cors);
+  }
+  // The newest sensor's readings, plus what the scheduled job logged.
+  const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source, now))];
+  return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history: lastHour(points, now), sources: status }, 200, cors);
+}
+
+// Readings from the last hour, oldest first, in mmol/L. Points under 30 s apart are one reading.
+function lastHour(points, now) {
+  return points
     .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 60 * 60000)
     .sort((a, b) => a.time - b.time)
-    .filter((p, i, all) => i === 0 || p.time - all[i - 1].time >= 30000);
-  const history = points.map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
-  return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history, sources: status }, 200, cors);
+    .filter((p, i, all) => i === 0 || p.time - all[i - 1].time >= 30000)
+    .map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
 }
 
 export default {

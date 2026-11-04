@@ -329,7 +329,12 @@ function getReading({ maxAgeMs = 60000 } = {}) {
   renderCgmCard();
   cgmPending = fetchLatest(cgmUrl())
     .then((r) => { state.cgm = { reading: r, error: null, at: Date.now(), loading: false }; return r; })
-    .catch((err) => { state.cgm = { ...state.cgm, error: err.message, loading: false }; throw err; })
+    .catch((err) => {
+      // Keep the newest trend we have: the relay's logged readings, else what's already on screen.
+      const history = err.history?.length ? err.history : state.cgm.history || state.cgm.reading?.history || [];
+      state.cgm = { ...state.cgm, error: err.message, history, loading: false };
+      throw err;
+    })
     .finally(() => { cgmPending = null; renderCgmCard(); if (state.tab === 'settings') renderSettings(); });
   return cgmPending;
 }
@@ -346,36 +351,47 @@ function renderCgmCard() {
     return;
   }
   const r = state.cgm.reading;
-  if (!r) {
-    el.innerHTML = section(null, state.cgm.error
-      ? `<button class="row" data-action="cgm-refresh"><span class="row-main"><span class="row-title">Glucose reading</span><span class="row-sub">${esc(state.cgm.error)} Tap to try again.</span></span></button>`
-      : loadingRow('Getting his glucose reading…'));
+  if (!r && !state.cgm.error) {
+    el.innerHTML = section(null, loadingRow('Getting his glucose reading…'));
     return;
   }
-  const stale = r.ageMinutes > FRESH_MINUTES;
+  // No reading, or none recent: say so plainly, and still show the trend up to the gap.
+  if (!r || r.ageMinutes > FRESH_MINUTES) {
+    const history = state.cgm.error && state.cgm.history?.length ? state.cgm.history : r?.history || state.cgm.history || [];
+    const lastPoint = history.at(-1);
+    const last = r ? `Last ${sourceName(r)}: ${readingValue(r)} at ${clockTime(r.time)} (${readingAge(r)})`
+      : lastPoint ? `Last: ${fmt(lastPoint.mmol)} at ${clockTime(lastPoint.time)}` : '';
+    const sub = [last, state.cgm.error && esc(state.cgm.error), 'Tap to try again.'].filter(Boolean).join(' · ');
+    el.innerHTML = section(null, `<button class="row cgm-row cgm-stale" data-action="cgm-refresh">
+      <span class="cgm-value" aria-hidden="true">– –</span>
+      <span class="row-main"><span class="row-title">No glucose reading. Check the CGM app.</span>
+        <span class="row-sub">${sub}</span></span>
+    </button>
+    ${trendChart(history)}`);
+    return;
+  }
   const lowThreshold = state.settings?.hypoThreshold ?? 4;
-  const tone = r.low || r.mmol < lowThreshold ? 'cgm-low' : stale ? 'cgm-stale' : '';
-  // A fresh low reading gets a plain warning, not just a red number.
-  const lowBanner = !stale && (r.low || r.mmol < lowThreshold)
+  const isLow = r.low || r.mmol < lowThreshold;
+  // A low reading gets a plain warning, not just a red number.
+  const lowBanner = isLow
     ? `<div class="banner banner-danger" role="alert">${ICON.drop}<div><strong>${sourceName(r)} shows ${readingValue(r)}. That’s low.</strong>Check with a finger-prick and treat the low first. Don’t give insulin now.</div></div>`
     : '';
-  el.innerHTML = lowBanner + section(null, `<button class="row cgm-row ${tone}" data-action="cgm-refresh" aria-label="${sourceName(r)} ${readingValue(r)} mmol/L, ${esc(r.trendText)}, ${readingAge(r)}. Tap to refresh.">
+  el.innerHTML = lowBanner + section(null, `<button class="row cgm-row ${isLow ? 'cgm-low' : ''}" data-action="cgm-refresh" aria-label="${sourceName(r)} ${readingValue(r)} mmol/L, ${esc(r.trendText)}, ${readingAge(r)}. Tap to refresh.">
     <span class="cgm-value">${readingValue(r)}<span class="cgm-arrow" aria-hidden="true">${r.arrow}</span></span>
     <span class="row-main"><span class="row-title">mmol/L · ${esc(r.trendText)}</span>
-      <span class="row-sub">${sourceName(r)} · ${readingAge(r)}${stale ? ' · too old to use for a dose' : ''}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
+      <span class="row-sub">${sourceName(r)} · ${readingAge(r)}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
   </button>
-  ${trendChart(r)}`);
+  ${trendChart(r.history)}`);
 }
 
 const clockTime = (iso) => new Date(iso).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Small last-hour chart of the real readings only: no smoothing, no made-up points.
-function trendChart(r, now = Date.now()) {
-  const points = (r.history || [])
+function trendChart(history = [], now = Date.now()) {
+  const points = history
     .map((p) => ({ mmol: p.mmol, t: Date.parse(p.time), time: p.time }))
     .filter((p) => now - p.t <= 60 * 60000)
     .sort((a, b) => a.t - b.t);
-  if (!points.length) return '';
 
   const W = 300, H = 64, padX = 8, padY = 8;
   const values = points.map((p) => p.mmol);
@@ -396,23 +412,34 @@ function trendChart(r, now = Date.now()) {
     .map((s) => `<polyline points="${s.map((p) => `${x(p.t).toFixed(1)},${y(p.mmol).toFixed(1)}`).join(' ')}" />`).join('');
   const dots = points.map((p, i) => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.mmol).toFixed(1)}" r="${i === points.length - 1 ? 4.5 : 3}" class="${i === points.length - 1 ? 'trend-last' : ''}"><title>${fmt(p.mmol)} at ${clockTime(p.time)}</title></circle>`).join('');
 
+  // Shade each stretch with no readings: between segments, and from the last reading to now.
   const cur = points.at(-1);
+  const gapSince = !cur ? now - 60 * 60000 : now - cur.t > FRESH_MINUTES * 60000 ? cur.t : null;
+  const gaps = segments.slice(1).map((s, i) => [segments[i].at(-1).t, s[0].t]);
+  if (gapSince != null) gaps.push([gapSince, now]);
+  const gapRects = gaps.map(([a, b]) => {
+    const left = x(a), right = b >= now ? W : x(b); // a gap up to now runs to the chart's edge
+    return `<rect class="trend-gap" x="${left.toFixed(1)}" y="0" width="${(right - left).toFixed(1)}" height="${H}" rx="4" />`;
+  }).join('');
+
   const signed = (d) => `${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))}`;
   // Prefer a real reading 8–15 minutes back (closest to 10); otherwise compare with the previous one.
-  const tenAgo = points
+  const tenAgo = cur && points
     .filter((p) => cur.t - p.t >= 8 * 60000 && cur.t - p.t <= 15 * 60000)
     .sort((a, b) => Math.abs(cur.t - a.t - 10 * 60000) - Math.abs(cur.t - b.t - 10 * 60000))[0];
   const prev = points.length > 1 ? points.at(-2) : null;
-  const change = tenAgo ? `${signed(cur.mmol - tenAgo.mmol)} in ${Math.round((cur.t - tenAgo.t) / 60000)} min`
+  const change = !cur ? 'No readings in the last hour'
+    : gapSince != null ? `No readings since ${clockTime(cur.time)}`
+    : tenAgo ? `${signed(cur.mmol - tenAgo.mmol)} in ${Math.round((cur.t - tenAgo.t) / 60000)} min`
     : prev ? `${signed(cur.mmol - prev.mmol)} since ${clockTime(prev.time)}`
     : 'One reading in the last hour';
-  const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ')}. Shaded band is ${low} to 10 mmol/L.`;
+  const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ') || 'no readings'}. ${change === 'No readings in the last hour' ? '' : change + '. '}Shaded band is ${low} to 10 mmol/L.`;
 
   return `<div class="trend" role="group" aria-label="Last hour of readings">
     <svg class="trend-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
       <rect class="trend-band" x="0" y="${y(10).toFixed(1)}" width="${W}" height="${(y(low) - y(10)).toFixed(1)}" rx="6" />
       <line class="trend-low" x1="0" x2="${W}" y1="${y(low).toFixed(1)}" y2="${y(low).toFixed(1)}" />
-      ${lines}${dots}
+      ${gapRects}${lines}${dots}
     </svg>
     <div class="trend-caption"><span>1 h ago</span><strong>${esc(change)}</strong><span>now</span></div>
     <p class="trend-key">Shaded: ${low}–10 mmol/L · dashed line: low (${low})</p>

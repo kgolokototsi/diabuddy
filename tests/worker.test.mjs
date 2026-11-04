@@ -263,6 +263,23 @@ test('readings are kept per day for 120 days, and only the newest sensor shows i
   assert.ok(body.history.every((p) => p.mmol < 11), 'no Dexcom points in a Libre history');
 });
 
+test('when no sensor answers, the error still carries the logged last hour for the trend', async () => {
+  const w = await load();
+  const LOG = memoryKv();
+  const now = Date.now();
+  await LOG.put(`glucose:${new Date(now).toISOString().slice(0, 10)}`, JSON.stringify([
+    { source: 'libre', mgdl: 90, time: now - 2 * 3600000 },
+    { source: 'libre', mgdl: 108, time: now - 40 * 60000 },
+    { source: 'libre', mgdl: 126, time: now - 30 * 60000 },
+  ]));
+  libre.password = 'changed';
+  const res = await get(w, { ...libreEnv, LOG });
+  assert.equal(res.status, 502);
+  const body = await res.json();
+  assert.equal(body.error, 'libre_login_failed');
+  assert.deepEqual(body.history.map((p) => p.mmol), [6, 7]);
+});
+
 const post = (w, env, body, key = env.FAMILY_KEY) => w.fetch(new Request('https://relay.example/events', {
   method: 'POST', headers: { 'X-DiaBuddy-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }), env);

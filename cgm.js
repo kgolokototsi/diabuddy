@@ -43,7 +43,8 @@ const MESSAGES = {
   libre_no_connection: 'The LibreLinkUp account isn’t following him yet. Accept the invite in the LibreLinkUp app.',
   libre_no_readings: 'Libre has no recent readings.',
   libre_unavailable: 'LibreLinkUp isn’t answering right now.',
-  not_configured: 'The relay is missing its sensor login or family key.',
+  no_readings: 'The sensor sent no readings.',
+  not_configured:'The relay is missing its sensor login or family key.',
   read_only_key: 'This device can only view the log.',
   scan_not_configured: 'Label photos aren’t switched on yet. The admin needs to add the label-reader key to the relay.',
   scan_limit: 'That’s the limit of label photos for today. Type the carbs in instead.',
@@ -70,14 +71,12 @@ export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } =
       signal: ctrl.signal,
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(MESSAGES[body.error] || `The relay returned ${res.status}.`);
-    const raw = body.readings?.[0];
-    if (!raw) throw new Error(MESSAGES.no_readings);
-    const reading = cleanReading(raw);
-    if (!reading) throw new Error(MESSAGES.no_readings);
-    reading.history = (Array.isArray(body.history) ? body.history : [])
-      .map((p) => ({ mmol: Number(p?.mmol), time: String(p?.time || '') }))
-      .filter((p) => Number.isFinite(p.mmol) && Date.parse(p.time));
+    const history = cleanHistory(body.history);
+    // Errors carry the last hour's logged readings, so the trend still shows up to the gap.
+    if (!res.ok) throw Object.assign(new Error(MESSAGES[body.error] || `The relay returned ${res.status}.`), { history });
+    const reading = cleanReading(body.readings?.[0]);
+    if (!reading) throw Object.assign(new Error(MESSAGES.no_readings), { history });
+    reading.history = history;
     return reading;
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('No answer from his sensor. Check the connection.');
@@ -133,9 +132,16 @@ function cleanReading(r) {
     trendText,
     fast,
     time: new Date(time).toISOString(),
-    // Recompute age on this device so a cached response can't look fresher than it is.
-    ageMinutes: Math.max(0, Math.round((Date.now() - time) / 60000)),
+    // Worked out on this device each time it's read, so a reading kept on screen
+    // (or a cached response) can't look fresher than it is.
+    get ageMinutes() { return Math.max(0, Math.round((Date.now() - time) / 60000)); },
   };
+}
+
+function cleanHistory(points) {
+  return (Array.isArray(points) ? points : [])
+    .map((p) => ({ mmol: Number(p?.mmol), time: String(p?.time || '') }))
+    .filter((p) => Number.isFinite(p.mmol) && Date.parse(p.time));
 }
 
 // Whether a reading may fill the BG field by itself.
