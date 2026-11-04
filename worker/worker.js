@@ -24,6 +24,8 @@ import { readLabel } from './label.js';
 import { authenticate, can, createInvite, enroll, listDevices, removeDevice, turnOffLegacy, legacyActive, ROLES, sha256Hex } from './auth.js';
 import { readSettings, settingsHistory, writeSettings } from './settings.js';
 import { checkHigh, cleanSubscription, sendPush, subscriptionKey, vapidPublicKey, HIGH_FOR_MS } from './push.js';
+import { buildNextDay, invalidateDay, readInsights } from './insights.js';
+import { isoWeek, writeSummary } from './summary.js';
 
 const MGDL_PER_MMOL = 18.0182;
 
@@ -294,7 +296,16 @@ async function readSensors(env) {
 const GLUCOSE_TTL_S = 120 * 24 * 3600;
 const dayKey = (ms) => `glucose:${new Date(ms).toISOString().slice(0, 10)}`;
 
-async function recordReadings(env, readings, now = Date.now()) {
+// Reading and parsing a day's log is most of a scheduled run's CPU time, so one run
+// shares each day's parsed log between its steps (memo: Map of key → log).
+const readDay = async (env, key, memo) => {
+  if (memo?.has(key)) return memo.get(key);
+  const log = await env.LOG.get(key, 'json');
+  memo?.set(key, log);
+  return log;
+};
+
+async function recordReadings(env, readings, now = Date.now(), memo) {
   if (!env.LOG || !readings.length) return;
   const byDay = new Map();
   for (const { source, mgdl, time } of readings) {
@@ -303,20 +314,22 @@ async function recordReadings(env, readings, now = Date.now()) {
     byDay.get(key).push({ source, mgdl, time });
   }
   for (const [key, fresh] of byDay) {
-    const log = (await env.LOG.get(key, 'json')) || [];
+    const log = (await readDay(env, key, memo)) || [];
     const known = new Set(log.map((p) => `${p.source}|${p.time}`));
     const add = fresh.filter((p) => !known.has(`${p.source}|${p.time}`) && now - p.time < GLUCOSE_TTL_S * 1000);
     if (!add.length) continue;
-    await env.LOG.put(key, JSON.stringify([...log, ...add].sort((a, b) => a.time - b.time)), { expirationTtl: GLUCOSE_TTL_S });
+    const merged = [...log, ...add].sort((a, b) => a.time - b.time);
+    await env.LOG.put(key, JSON.stringify(merged), { expirationTtl: GLUCOSE_TTL_S });
+    memo?.set(key, merged);
   }
 }
 
 // Logged points for one sensor (every sensor when source is null), from the last hour by default.
-async function loggedPoints(env, source, now = Date.now(), windowMs = 60 * 60000) {
+async function loggedPoints(env, source, now = Date.now(), windowMs = 60 * 60000, memo) {
   if (!env.LOG) return [];
   try {
     const days = [...new Set([dayKey(now - windowMs), dayKey(now)])];
-    const logs = await Promise.all(days.map((k) => env.LOG.get(k, 'json')));
+    const logs = await Promise.all(days.map((k) => readDay(env, k, memo)));
     return logs.flat().filter((p) => p && (source == null || p.source === source) && now - p.time <= windowMs);
   } catch {
     return [];
@@ -400,6 +413,7 @@ async function handleEvents(request, env, url, cors, canWrite) {
     const event = cleanEvent(body);
     if (!event) return json({ error: 'bad_event' }, 400, cors);
     await env.LOG.put(eventKey(event), JSON.stringify(event), { expirationTtl: EVENT_TTL_S });
+    await invalidateDay(env, event.at); // a late entry for an earlier day: rebuild that day's insights
     return json({ event }, 201, cors);
   }
 
@@ -409,6 +423,7 @@ async function handleEvents(request, env, url, cors, canWrite) {
     const match = (await listEvents(env, 31)).find((e) => e.id === id);
     if (!match) return json({ error: 'not_found' }, 404, cors);
     await env.LOG.delete(eventKey(match));
+    await invalidateDay(env, match.at);
     return json({ deleted: id }, 200, cors);
   }
   return json({ error: 'not_found' }, 404, cors);
@@ -512,7 +527,13 @@ async function handleFoods(request, env, url, cors, canWrite) {
 // Deletes stored readings and/or log entries. KV allows 1,000 deletes a day on the free
 // plan, so a large purge may need running again; the reply says how many are left.
 async function purge(env, what) {
-  const prefixes = { glucose: ['glucose:'], events: ['event:'], all: ['glucose:', 'event:', 'settings-history:', 'scans:'] }[what];
+  // Insights are built from readings and the log, so they go with either.
+  const insights = ['insights-day:', 'insights-done'];
+  const prefixes = {
+    glucose: ['glucose:', ...insights],
+    events: ['event:', ...insights],
+    all: ['glucose:', 'event:', 'settings-history:', 'scans:', ...insights, 'insights-summary:', 'insights-refresh:', 'high-alert'],
+  }[what];
   if (!prefixes) return null;
   let deleted = 0;
   let remaining = 0;
@@ -527,6 +548,43 @@ async function purge(env, what) {
     } while (cursor);
   }
   return { deleted, remaining };
+}
+
+// ---------------------------------------------------------------- weekly summary
+
+const SUMMARY_TTL_S = 365 * 24 * 3600;
+
+// GET: this week's summary (or null). POST: write it if missing; {refresh: true} (admin,
+// once a day) writes it again. The TV can read but not start a paid call.
+async function handleSummary(request, env, device, cors) {
+  const key = `insights-summary:${isoWeek(Date.now())}`;
+  const available = Boolean(env.ANTHROPIC_API_KEY);
+  if (request.method === 'GET') return json({ summary: await env.LOG.get(key, 'json'), available }, 200, cors);
+  if (request.method !== 'POST') return json({ error: 'not_found' }, 404, cors);
+  if (!can(device, 'log')) return json({ error: 'read_only_key' }, 403, cors);
+  if (!available) return json({ error: 'summary_not_configured' }, 503, cors);
+
+  const { body } = await readJson(request, 200);
+  const existing = await env.LOG.get(key, 'json');
+  if (existing && body?.refresh !== true) return json({ summary: existing }, 200, cors);
+  if (existing) {
+    if (!can(device, 'admin')) return json({ error: 'admin_only' }, 403, cors);
+    const marker = `insights-refresh:${new Date().toISOString().slice(0, 10)}`;
+    if (await env.LOG.get(marker)) return json({ error: 'summary_refresh_limit' }, 429, cors);
+    await env.LOG.put(marker, '1', { expirationTtl: 2 * 24 * 3600 });
+  }
+  if (await limited(env.RL_SCAN, device.id)) return json({ error: 'rate_limited' }, 429, cors);
+  try {
+    const result = await writeSummary(env);
+    if (result.error) return json({ error: result.error }, 422, cors);
+    await env.LOG.put(key, JSON.stringify(result.summary), { expirationTtl: SUMMARY_TTL_S });
+    return json({ summary: result.summary }, 201, cors);
+  } catch (err) {
+    console.error('summary failed', err.status, err.message);
+    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return json({ error: 'scan_bad_api_key' }, 502, cors);
+    if (err instanceof Anthropic.RateLimitError) return json({ error: 'scan_busy' }, 503, cors);
+    return json({ error: 'summary_unavailable' }, 502, cors);
+  }
 }
 
 // ---------------------------------------------------------------- rate limits
@@ -547,7 +605,7 @@ const ipTag = async (request) => (await sha256Hex(request.headers.get('CF-Connec
 
 // ---------------------------------------------------------------- entry point
 
-const API_PATHS = ['/latest', '/events', '/foods', '/scan-label', '/settings', '/me', '/enroll', '/invites', '/devices', '/erase', '/legacy-off', '/push'];
+const API_PATHS = ['/latest', '/events', '/foods', '/scan-label', '/settings', '/me', '/enroll', '/invites', '/devices', '/erase', '/legacy-off', '/push', '/insights'];
 const isApi = (path) => API_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
 
 async function readJson(request, maxChars = 8000) {
@@ -631,6 +689,12 @@ export default {
 
     if (!env.LOG) return json({ error: 'log_unavailable' }, 503, cors);
 
+    if (path === '/insights' && method === 'GET') {
+      const low = (await readSettings(env))?.hypoThreshold ?? 4;
+      return json({ ...(await readInsights(env)), low, summaries: Boolean(env.ANTHROPIC_API_KEY) }, 200, cors);
+    }
+    if (path === '/insights/summary') return handleSummary(request, env, device, cors);
+
     if (path === '/settings' && method === 'GET') {
       if (url.searchParams.get('history')) return json({ history: await settingsHistory(env) }, 200, cors);
       return json({ settings: await readSettings(env) }, 200, cors);
@@ -706,13 +770,17 @@ export default {
   },
 
   // Cron trigger (wrangler.toml): log each new reading so we have every minute,
-  // then check whether he has been high long enough to alert the family.
+  // check whether he has been high long enough to alert the family, and build insights.
   async scheduled(_event, env, ctx) {
     ctx.waitUntil((async () => {
       const { readings } = await readSensors(env);
-      await recordReadings(env, readings);
       const now = Date.now();
-      await checkHigh(env, await loggedPoints(env, null, now, HIGH_FOR_MS + 30 * 60000), now);
+      const memo = new Map();
+      await recordReadings(env, readings, now, memo);
+      await checkHigh(env, await loggedPoints(env, null, now, HIGH_FOR_MS + 30 * 60000, memo), now);
+      // Build any missing day of insights (one per run; nothing to do most runs).
+      const low = (env.LOG && (await env.LOG.get('settings', 'json'))?.hypoThreshold) || 4;
+      await buildNextDay(env, now, { low });
     })().catch((err) => console.warn('scheduled job failed', err?.name)));
   },
 };

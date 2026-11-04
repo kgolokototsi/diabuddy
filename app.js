@@ -2,6 +2,7 @@ import { calculateDose, parseBg, lineCarbs, isConfigured, BG_MIN, BG_MAX } from 
 import { loadFoods, searchFoods, loadPackaged, lookupBarcode, CATEGORIES, SOURCE_LABEL } from './foods.js';
 import { spring, project, rubberband, VelocityTracker } from './spring.js';
 import { RELAY_URL, APP_VERSION } from './config.js';
+import { forecastResponse, lowRisk, recentSlope } from './forecast.js';
 import { alertSupport, alertsOn, turnOnAlerts, turnOffAlerts, sendTestAlert } from './alerts.js';
 import { getCgmKey, setCgmKey, consumeJoinCode, joinCodeFrom, inviteLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
 
@@ -57,6 +58,7 @@ const state = {
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
   alerts: { on: null },
+  insights: { data: null, at: 0, loading: false, error: null, summary: null, kind: 'meal', days: 14, table: false, carbs: null, units: null, bgTyped: null, mealOfDay: null },
   me: store.get('me', null), // { id, name, role, legacy } from the relay
   githubFoods: [],
   relayFoods: store.get('relay-foods', []),
@@ -127,6 +129,7 @@ function forgetThisPhone() {
   try { localStorage.removeItem('diabuddy.meal'); } catch {}
   // The relay forgets this phone's alerts with the phone; drop the browser's side too.
   state.alerts = { on: null };
+  state.insights = { ...state.insights, data: null, at: 0, summary: null };
   navigator.serviceWorker?.getRegistration().then((reg) => reg?.pushManager.getSubscription()).then((sub) => sub?.unsubscribe()).catch(() => {});
 }
 
@@ -340,12 +343,20 @@ function getReading({ maxAgeMs = 60000 } = {}) {
       state.cgm = { ...state.cgm, error: err.message, history, loading: false };
       throw err;
     })
-    .finally(() => { cgmPending = null; renderCgmCard(); if (state.tab === 'settings') renderSettings(); });
+    .finally(() => {
+      cgmPending = null;
+      renderCgmCard();
+      if (state.tab === 'settings') renderSettings();
+      // Keep "Low risk now" current, but don't redraw under someone typing.
+      if (state.tab === 'insights' && !$('#insights-body').contains(document.activeElement)) renderInsights();
+    });
   return cgmPending;
 }
 
 const readingAge = (r) => r.ageMinutes === 0 ? 'just now' : r.ageMinutes === 1 ? '1 min ago' : `${r.ageMinutes} min ago`;
 const sourceName = (r) => (r.source === 'libre' ? 'Libre' : 'Dexcom');
+// Low treatments follow the 15-15 rule: 15 g of fast carbs, recheck after 15 minutes.
+const LOW_TREATMENT_G = 15;
 // From this a reading shows in orange (his team counts 14 as high).
 const HIGH_MMOL = 14;
 // Top of the shaded target range on the trend chart.
@@ -811,6 +822,337 @@ function renderSettings() {
       <div class="row"><span class="row-main"><span class="row-title">Version</span></span><span class="row-value">${APP_VERSION}</span></div>`,
       'DiaBuddy is a calculator, not medical advice. Always follow the plan from his diabetes team, and use your own judgement.')}
   `;
+}
+
+// ---------------------------------------------------------------- Insights
+
+// Forecasts and patterns from his own history (worker/insights.js builds them nightly).
+// Information only: ranges from past meals, lows and corrections, never a dose.
+
+const BLOCK_NAMES = ['Night', 'Morning', 'Afternoon', 'Evening'];
+const BLOCK_HOURS = ['00–06', '06–12', '12–18', '18–24'];
+const MEAL_NAMES = { breakfast: 'Breakfast', lunch: 'Lunch', supper: 'Supper', snack: 'Snacks' };
+const KIND_NAMES = { meal: 'Meal', 'low-treatment': 'Low treatment', correction: 'Correction' };
+const signed = (d) => `${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))}`;
+
+async function loadInsights({ force = false } = {}) {
+  const st = state.insights;
+  if (!getCgmKey() || st.loading) return;
+  if (!force && st.data && Date.now() - st.at < 10 * 60000) return;
+  st.loading = true;
+  if (!st.data) renderInsights();
+  try {
+    const [data, summary] = await Promise.all([
+      relayFetch(RELAY_URL, '/insights'),
+      relayFetch(RELAY_URL, '/insights/summary').catch(() => null),
+    ]);
+    Object.assign(st, { data, summary, at: Date.now(), error: null });
+  } catch (err) {
+    st.error = err.message;
+  }
+  st.loading = false;
+  if (state.tab === 'insights') renderInsights();
+}
+
+// The reading Insights may use as "now": fresh and a real number.
+function insightsReading() {
+  const r = state.cgm.reading;
+  return r && !r.low && !r.high && r.ageMinutes <= FRESH_MINUTES ? r : null;
+}
+
+function renderInsights() {
+  const el = $('#insights-body');
+  if (!el) return;
+  const st = state.insights;
+  if (!getCgmKey()) {
+    el.innerHTML = section(null, `<button class="row" data-action="join"><span class="row-main"><span class="row-title row-link">Connect this phone</span><span class="row-sub">Insights come from his readings and log, so this phone needs an invite first.</span></span>${ICON.chevron}</button>`);
+    return;
+  }
+  if (!st.data) {
+    el.innerHTML = st.error
+      ? `<div class="banner banner-warn">${ICON.warn}<div>${esc(st.error)}</div></div>${section(null, '<button class="row" data-ins="reload"><span class="row-main"><span class="row-title row-link">Try again</span></span></button>')}`
+      : section(null, loadingRow('Looking through his history…'));
+    return;
+  }
+  const d = st.data;
+  el.innerHTML = [
+    insightsStatus(d),
+    insightsSummary(d),
+    insightsLowRisk(d),
+    insightsForecast(d),
+    insightsTimeOfDay(d),
+    insightsMealTypes(d),
+    '<p class="insights-foot">DiaBuddy is a calculator, not medical advice. Always follow his diabetes team’s plan.</p>',
+  ].join('');
+}
+
+function insightsStatus(d) {
+  const c = d.coverage;
+  const need = 10;
+  const ready = c.meals >= need;
+  const updated = d.through ? `Updated to ${esc(fmtDate(d.through))}` : 'The first update runs tonight';
+  return section(null, `<div class="row"><span class="row-main">
+      <span class="row-title">${ready ? `Based on ${c.meals} meals and ${c.days90} days of readings` : `Learning: ${c.meals} of ${need} meals with full 3-hour readings`}</span>
+      <span class="row-sub">${c.lowTreatments} low treatments · ${c.corrections} corrections · ${updated}</span>
+      ${ready ? '' : `<span class="progress" role="progressbar" aria-label="Meals learned" aria-valuemin="0" aria-valuemax="${need}" aria-valuenow="${c.meals}"><span style="width:${Math.min(100, (c.meals / need) * 100)}%"></span></span>`}
+    </span></div>`);
+}
+
+function insightsSummary(d) {
+  if (!d.summaries) return '';
+  const st = state.insights;
+  const s = st.summary?.summary;
+  const canWrite = state.me && state.me.role !== 'tv';
+  if (!s) {
+    const body = canWrite
+      ? `<button class="row" data-ins="summary"${st.summaryBusy ? ' disabled' : ''}><span class="row-main"><span class="row-title row-link">${st.summaryBusy ? 'Writing…' : 'Write this week’s summary'}</span><span class="row-sub">Claude reads this week’s numbers (percentages and averages only) and writes a short summary.</span></span></button>`
+      : '<div class="row"><span class="row-main"><span class="row-sub">This week’s summary hasn’t been written yet.</span></span></div>';
+    return section('This week', body);
+  }
+  const points = s.points.map((p) => `<li>${esc(p)}</li>`).join('');
+  return section('This week', `<div class="row summary-row"><span class="row-main">
+      <span class="row-title">${esc(s.headline)}</span>
+      ${points ? `<ul class="summary-points">${points}</ul>` : ''}
+      ${s.discussWithTeam ? `<span class="summary-team">${ICON.warn}<span><strong>Worth discussing with his diabetes team:</strong> ${esc(s.discussWithTeam)}</span></span>` : ''}
+    </span></div>
+    ${isAdmin() ? `<button class="row" data-ins="summary-refresh"${st.summaryBusy ? ' disabled' : ''}><span class="row-main"><span class="row-title row-link">${st.summaryBusy ? 'Writing…' : 'Write it again'}</span></span></button>` : ''}`,
+  'Written by Claude from this week’s numbers. Not medical advice.');
+}
+
+function insightsLowRisk(d) {
+  const r = insightsReading();
+  const low = d.low;
+  let tone = '';
+  let text;
+  if (!r) {
+    text = '<span class="row-title">Needs a current reading</span><span class="row-sub">Shown when there’s a reading from the last 10 minutes.</span>';
+  } else if (r.mmol < low) {
+    tone = 'risk-high';
+    text = `<span class="row-title">He’s low now (${fmt(r.mmol)})</span><span class="row-sub">Treat the low first: ${LOW_TREATMENT_G} g of fast carbs, recheck in 15 minutes.</span>`;
+  } else {
+    const slope = recentSlope(r.history);
+    const lastInsulin = (state.todayLog || []).some((e) => (e.insulinGiven ?? 0) > 0 && Date.now() - Date.parse(e.at) <= 2 * 3600000);
+    const trend = slope == null ? r.trendText : slope <= -0.06 ? 'falling fast' : slope <= -0.02 ? 'falling' : slope >= 0.06 ? 'rising fast' : slope >= 0.02 ? 'rising' : 'steady';
+    const res = slope == null ? null : lowRisk(d.moments, { bg: r.mmol, slope, recentInsulin: lastInsulin }, { low });
+    const now = `Now ${fmt(r.mmol)} and ${esc(trend)}${lastInsulin ? ', insulin in the last 2 hours' : ''}.`;
+    if (!res || res.learning) {
+      text = `<span class="row-title">${now}</span><span class="row-sub">Still learning: ${res ? `${res.have} of ${res.need}` : 'not enough'} similar moments in his history so far.</span>`;
+    } else {
+      tone = res.wentLow * 3 >= res.n ? 'risk-high' : res.wentLow > 0 ? 'risk-some' : '';
+      text = `<span class="row-title">${now}</span><span class="row-sub">In similar moments he went below ${fmt(low)} within 45 minutes in <strong>${res.wentLow} of ${res.n}</strong> (lowest usually ${fmt(res.lowest)}).</span>`;
+    }
+  }
+  return section('Low risk now', `<div class="row low-risk ${tone}">${tone ? ICON.warn : ''}<span class="row-main">${text}</span></div>`,
+    'From his history at this level and trend. Check with a finger-prick if unsure.');
+}
+
+function forecastInput(kind) {
+  const st = state.insights;
+  const r = insightsReading();
+  const bg = st.bgTyped ?? (r ? r.mmol : null);
+  const s = state.settings;
+  if (kind === 'meal') {
+    const trayCarbs = Math.round(mealCarbs());
+    const carbs = st.carbs ?? (trayCarbs > 0 ? trayCarbs : 40);
+    return { carbs, insulin: s?.icr > 0 ? carbs / s.icr : null, mealOfDay: st.mealOfDay || mealOfDay(), bg, fromTray: st.carbs == null && trayCarbs > 0 };
+  }
+  if (kind === 'low-treatment') return { bg: st.bgTyped ?? (r && r.mmol < 5 ? r.mmol : 3.5) };
+  let units = st.units;
+  if (units == null && bg != null && isConfigured(s)) {
+    const dose = calculateDose({ carbs: 0, bg, settings: s });
+    units = dose.status === 'ok' && dose.rounded > 0 ? dose.rounded : null;
+  }
+  return { bg: bg ?? 14, units: units ?? 1 };
+}
+
+function insightsForecast(d) {
+  const st = state.insights;
+  const kind = st.kind;
+  const input = forecastInput(kind);
+  const f = forecastResponse(d.responses, kind, input, { low: d.low });
+  const r = insightsReading();
+  const bgFromSensor = st.bgTyped == null && r && (kind !== 'low-treatment' || r.mmol < 5);
+
+  const tabs = `<div class="segmented ins-seg" role="group" aria-label="Forecast for">${Object.entries(KIND_NAMES).map(([k, label]) =>
+    `<button type="button" data-ins-kind="${k}" aria-pressed="${k === kind}">${label}</button>`).join('')}</div>`;
+  const bgRow = `<div class="row field-row"><label for="ins-bg">Starting BG<span class="row-sub">${bgFromSensor ? `From ${sourceName(r)}, ${readingAge(r)}` : 'Type his BG, mmol/L'}</span></label>
+      <input id="ins-bg" data-ins-input="bg" inputmode="decimal" value="${input.bg != null ? fmt(input.bg) : ''}" placeholder="–" style="width:4rem;text-align:center"></div>`;
+  let fields = '';
+  if (kind === 'meal') {
+    fields = `<div class="row field-row"><label for="ins-carbs">Carbs<span class="row-sub">${input.fromTray ? 'From the meal in progress' : 'Grams of carbs'}</span></label>
+        <span class="stepper"><button type="button" data-ins-step="carbs:-5" aria-label="5 g less">${ICON.minus}</button></span>
+        <input id="ins-carbs" data-ins-input="carbs" inputmode="numeric" value="${Math.round(input.carbs)}" style="width:3.5rem;text-align:center">
+        <span class="stepper"><button type="button" data-ins-step="carbs:5" aria-label="5 g more">${ICON.plus}</button></span></div>
+      <div class="chips ins-chips" role="group" aria-label="Meal">${Object.entries(MEAL_NAMES).map(([k, label]) =>
+        `<button type="button" class="chip" data-ins-meal="${k}" aria-selected="${k === input.mealOfDay}">${label.replace(/s$/, '')}</button>`).join('')}</div>
+      ${bgRow}`;
+  } else if (kind === 'low-treatment') {
+    fields = `${bgRow}<div class="row"><span class="row-main"><span class="row-title">${LOW_TREATMENT_G} g of fast carbs</span><span class="row-sub">The 15-15 rule: recheck after 15 minutes</span></span></div>`;
+  } else {
+    fields = `${bgRow}<div class="row field-row"><label for="ins-units">Correction<span class="row-sub">${st.units == null ? 'Worked out from his BG; change it to compare' : 'Units'}</span></label>
+        <span class="stepper"><button type="button" data-ins-step="units:-0.5" aria-label="Half a unit less">${ICON.minus}</button></span>
+        <input id="ins-units" data-ins-input="units" inputmode="decimal" value="${fmt(input.units)}" style="width:3.5rem;text-align:center">
+        <span class="stepper"><button type="button" data-ins-step="units:0.5" aria-label="Half a unit more">${ICON.plus}</button></span></div>`;
+  }
+
+  let result;
+  const noun = { meal: 'meals', 'low-treatment': 'low treatments', correction: 'corrections' }[kind];
+  if (f.learning) {
+    result = `<div class="row"><span class="row-main"><span class="row-title">Still learning</span><span class="row-sub">${f.have} of ${f.need} ${noun} with full readings so far. Forecasts start once there are ${f.need}.</span></span></div>`;
+  } else if (f.tooFew) {
+    result = `<div class="row"><span class="row-main"><span class="row-title">Not enough similar ${noun} yet</span><span class="row-sub">${f.have} of ${f.need} needed. Try other numbers, or check back as his log grows.</span></span></div>`;
+  } else {
+    result = `${forecastChart(f)}<p class="forecast-caption">${forecastCaption(f, input)}</p>
+      ${f.lowCount > 0 ? `<div class="banner banner-warn">${ICON.warn}<div>${f.lowCount} of ${f.n} similar ${noun} went low afterwards.</div></div>` : ''}`;
+  }
+  return section('Forecast', `${tabs}<div class="ins-fields">${fields}</div><div class="forecast">${result}</div>`,
+    'A pattern from his past, not a dose. The dose screen works out doses.');
+}
+
+// Plain-language summary of a forecast, in mmol/L when the starting BG is known.
+function forecastCaption(f, input) {
+  const at = (delta) => (f.base != null ? fmt(f.base + delta) : signed(delta));
+  const from = f.base != null ? ` from ${fmt(f.base)}` : '';
+  if (f.kind === 'meal') {
+    return `After about ${Math.round(input.carbs)} g${from}, he usually peaks at <strong>${at(f.peak.median)}</strong> (range ${at(f.peak.min)} to ${at(f.peak.max)}) about ${f.peak.minutes} min after eating; 3 hours later about ${at(f.end)}. From ${f.n} similar meals.`;
+  }
+  if (f.kind === 'low-treatment') {
+    return `${f.base != null ? `From ${fmt(f.base)}, ` : ''}${LOW_TREATMENT_G} g usually gets him to <strong>${at(f.at15.median)}</strong> at the 15-minute recheck (range ${at(f.at15.min)} to ${at(f.at15.max)}). Back above ${fmt(f.low)} in ${f.recovered} of ${f.n} lows; ${f.neededSecond} needed a second ${LOW_TREATMENT_G} g.${f.at60 != null ? ` An hour later he’s usually ${at(f.at60)}.` : ''}`;
+  }
+  return `After about ${fmt(input.units)} U${from}, he usually comes down to <strong>${at(f.end)}</strong> after 3 hours (lowest ${at(f.nadir.median)}, about ${f.nadir.minutes} min in). From ${f.n} similar corrections.`;
+}
+
+// Fan chart: the middle half of past responses (band) and the typical one (line).
+function forecastChart(f) {
+  const W = 300, H = 132, padL = 30, padR = 10, padT = 10, padB = 22;
+  const abs = f.base != null;
+  const val = (delta) => (delta == null ? null : abs ? f.base + delta : delta);
+  const pts = f.curve.filter((c) => c.median != null);
+  const lowsHighs = pts.flatMap((c) => [val(c.q25), val(c.q75), val(c.median)]).filter((v) => v != null);
+  const lo = Math.floor(Math.min(abs ? Math.min(3, f.low - 0.5) : -2, ...lowsHighs));
+  const hi = Math.ceil(Math.max(abs ? TARGET_TOP + 1 : 3, ...lowsHighs));
+  const maxMin = f.curve.at(-1).min;
+  const x = (m) => padL + (m / maxMin) * (W - padL - padR);
+  const y = (v) => padT + (1 - (v - lo) / (hi - lo)) * (H - padT - padB);
+  const xy = (m, v) => `${x(m).toFixed(1)},${y(v).toFixed(1)}`;
+
+  const band = `${pts.map((c) => xy(c.min, val(c.q75))).join(' ')} ${[...pts].reverse().map((c) => xy(c.min, val(c.q25))).join(' ')}`;
+  const line = pts.map((c) => xy(c.min, val(c.median))).join(' ');
+  const ticks = f.kind === 'low-treatment' ? [0, 15, 30, 45, 60] : [0, 60, 120, 180];
+  const tickLabel = (m) => (f.kind === 'low-treatment' ? (m === 0 ? 'now' : `${m} min`) : m === 0 ? 'now' : `${m / 60} h`);
+  const yTicks = abs ? [f.low, TARGET_TOP].filter((v) => v > lo && v < hi) : [0];
+
+  let marker = '';
+  if (f.kind === 'meal') {
+    const c = f.curve[Math.round(f.peak.minutes / f.step)];
+    if (c?.median != null) marker = `<circle class="fc-dot" cx="${x(c.min).toFixed(1)}" cy="${y(val(c.median)).toFixed(1)}" r="4" />`;
+  } else if (f.kind === 'correction') {
+    const c = f.curve[Math.round(f.nadir.minutes / f.step)];
+    if (c?.median != null) marker = `<circle class="fc-dot" cx="${x(c.min).toFixed(1)}" cy="${y(val(c.median)).toFixed(1)}" r="4" />`;
+  } else {
+    marker = `<line class="fc-recheck" x1="${x(15).toFixed(1)}" x2="${x(15).toFixed(1)}" y1="${padT}" y2="${H - padB}" /><text class="fc-label" x="${(x(15) + 4).toFixed(1)}" y="${padT + 9}">Recheck</text>`;
+  }
+  // Wide invisible columns carry the per-point tooltip, so it's easy to hit on a phone.
+  const colW = (W - padL - padR) / Math.max(1, pts.length - 1);
+  const hits = pts.map((c) => `<rect class="fc-hit" x="${(x(c.min) - colW / 2).toFixed(1)}" y="0" width="${colW.toFixed(1)}" height="${H}"><title>${tickLabel(c.min) === 'now' ? 'Start' : tickLabel(c.min)}: usually ${abs ? fmt(val(c.median)) : signed(c.median)} (${abs ? `${fmt(val(c.q25))}–${fmt(val(c.q75))}` : `${signed(c.q25)} to ${signed(c.q75)}`})</title></rect>`).join('');
+  const summary = `${KIND_NAMES[f.kind]} forecast from ${f.n} similar: ${pts.filter((c) => ticks.includes(c.min)).map((c) => `${tickLabel(c.min)} ${abs ? fmt(val(c.median)) : signed(c.median)}`).join(', ')}.`;
+
+  return `<svg class="forecast-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(summary)}">
+    ${abs ? `<rect class="trend-band" x="${padL}" y="${y(Math.min(TARGET_TOP, hi)).toFixed(1)}" width="${W - padL - padR}" height="${Math.max(0, y(Math.max(f.low, lo)) - y(Math.min(TARGET_TOP, hi))).toFixed(1)}" rx="4" />
+      <line class="trend-low" x1="${padL}" x2="${W - padR}" y1="${y(f.low).toFixed(1)}" y2="${y(f.low).toFixed(1)}" />` : `<line class="fc-zero" x1="${padL}" x2="${W - padR}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" />`}
+    ${yTicks.map((v) => `<text class="fc-axis" x="${padL - 6}" y="${(y(v) + 3.5).toFixed(1)}" text-anchor="end">${abs ? fmt(v, 0) : '0'}</text>`).join('')}
+    ${ticks.map((m) => `<text class="fc-axis" x="${x(m).toFixed(1)}" y="${H - 6}" text-anchor="${m === 0 ? 'start' : m === maxMin ? 'end' : 'middle'}">${tickLabel(m)}</text>`).join('')}
+    <polygon class="fc-band" points="${band}" />
+    <polyline class="fc-line" points="${line}" />
+    ${marker}${hits}
+  </svg>
+  <p class="trend-key">Line: typical · shaded: middle half of past ${f.kind === 'meal' ? 'meals' : f.kind === 'correction' ? 'corrections' : 'lows'}${abs ? ` · green: ${fmt(f.low)}–${TARGET_TOP}` : ' · change from start'}</p>`;
+}
+
+function insightsTimeOfDay(d) {
+  const st = state.insights;
+  const blocks = d.blocks[st.days];
+  const any = blocks.some((b) => b.n > 0);
+  const seg = `<div class="segmented ins-seg" role="group" aria-label="Period">${[14, 30].map((n) =>
+    `<button type="button" data-ins-days="${n}" aria-pressed="${n === st.days}">${n} days</button>`).join('')}</div>`;
+  if (!any) return section('Time of day', `${seg}<div class="row"><span class="row-main"><span class="row-sub">No readings in these days yet.</span></span></div>`);
+  const legend = `<div class="band-legend" aria-hidden="true">
+      <span><i class="b-low"></i>Below ${fmt(d.low)}</span><span><i class="b-in"></i>${fmt(d.low)}–${TARGET_TOP}</span><span><i class="b-mid"></i>${TARGET_TOP}–${HIGH_MMOL}</span><span><i class="b-high"></i>${HIGH_MMOL}+</span></div>`;
+  const body = st.table
+    ? `<table class="band-table"><thead><tr><th scope="col">Time</th><th scope="col">Below ${fmt(d.low)}</th><th scope="col">${fmt(d.low)}–${TARGET_TOP}</th><th scope="col">${TARGET_TOP}–${HIGH_MMOL}</th><th scope="col">${HIGH_MMOL}+</th></tr></thead><tbody>
+        ${blocks.map((b, i) => `<tr><th scope="row">${BLOCK_NAMES[i]}</th>${b.pct.map((p) => `<td>${b.n ? `${Math.round(p)}%` : '–'}</td>`).join('')}</tr>`).join('')}</tbody></table>`
+    : blocks.map((b, i) => {
+      const label = b.n ? `${Math.round(b.pct[1])}% in range · high ${Math.round(b.pct[2] + b.pct[3])}%${b.pct[0] >= 0.5 ? ` · low ${Math.round(b.pct[0])}%` : ''}` : 'No readings';
+      const segs = b.pct.map((p, j) => (p > 0 ? `<span class="b-${['low', 'in', 'mid', 'high'][j]}" style="width:${p}%"></span>` : '')).join('');
+      return `<div class="row block-row"><span class="row-main"><span class="row-title">${BLOCK_NAMES[i]} <span class="block-hours">${BLOCK_HOURS[i]}</span></span>
+          <span class="band-bar" role="img" aria-label="${esc(`${BLOCK_NAMES[i]}: ${b.pct.map((p, j) => `${Math.round(p)}% ${['below low', 'in range', '10 to 14', '14 or more'][j]}`).join(', ')}`)}">${segs}</span>
+          <span class="row-sub">${label}${b.mean != null ? ` · average ${fmt(b.mean)}` : ''}</span></span></div>`;
+    }).join('');
+  return section('Time of day', `${seg}${st.table ? '' : legend}${body}
+    <button class="row" data-ins="table"><span class="row-main"><span class="row-title row-link">${st.table ? 'Show as bars' : 'Show as table'}</span></span></button>`);
+}
+
+function insightsMealTypes(d) {
+  const rows = Object.entries(MEAL_NAMES).map(([k, label]) => {
+    const m = d.mealTypes[k];
+    let tag;
+    let note = '';
+    if (m.n < 5) tag = `<span class="ins-tag">Needs 5 meals (has ${m.n})</span>`;
+    else if (m.end >= 3) { tag = '<span class="ins-tag tag-high">Often ends high</span>'; note = 'Worth discussing with his diabetes team.'; }
+    else if (m.end <= -2 || m.lows * 5 >= m.n) { tag = '<span class="ins-tag tag-low">Often ends low</span>'; note = 'Worth discussing with his diabetes team.'; }
+    else tag = '<span class="ins-tag tag-ok">Looks on target</span>';
+    const detail = m.n ? `${m.n} meal${m.n === 1 ? '' : 's'}${m.end != null ? ` · 3 h later usually ${signed(m.end)}` : ''}${m.lows ? ` · ${m.lows} went low` : ''}` : 'No meals logged yet';
+    return `<div class="row"><span class="row-main"><span class="row-title">${label}</span><span class="row-sub">${detail}${note ? `. ${note}` : ''}</span></span>${tag}</div>`;
+  }).join('');
+  return section('After meals', rows, 'Last 30 days: where he is 3 hours after eating, compared with before.');
+}
+
+async function writeWeeklySummary(refresh) {
+  const st = state.insights;
+  st.summaryBusy = true;
+  renderInsights();
+  try {
+    st.summary = await relayFetch(RELAY_URL, '/insights/summary', { method: 'POST', body: refresh ? { refresh: true } : {}, timeoutMs: 60000 });
+  } catch (err) {
+    toast(err.message);
+  }
+  st.summaryBusy = false;
+  renderInsights();
+}
+
+function initInsights() {
+  const el = $('#insights-body');
+  el.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-ins], [data-ins-kind], [data-ins-days], [data-ins-meal], [data-ins-step]');
+    if (!t) return;
+    const st = state.insights;
+    const d = t.dataset;
+    if (d.ins === 'reload') loadInsights({ force: true });
+    else if (d.ins === 'summary') writeWeeklySummary(false);
+    else if (d.ins === 'summary-refresh') writeWeeklySummary(true);
+    else if (d.ins === 'table') st.table = !st.table;
+    else if (d.insKind) { st.kind = d.insKind; st.bgTyped = null; st.units = null; }
+    else if (d.insDays) st.days = Number(d.insDays);
+    else if (d.insMeal) st.mealOfDay = d.insMeal;
+    else if (d.insStep) {
+      const [field, by] = d.insStep.split(':');
+      const input = forecastInput(st.kind);
+      const next = Math.round(((field === 'carbs' ? input.carbs : input.units) + Number(by)) * 2) / 2;
+      st[field] = Math.max(field === 'carbs' ? 5 : 0.5, Math.min(field === 'carbs' ? 200 : 20, next));
+    }
+    if (!d.ins || d.ins === 'table') renderInsights();
+  });
+  // Typed values update the forecast once the field is left (or Enter), so typing isn't interrupted.
+  el.addEventListener('change', (e) => {
+    const field = e.target.dataset.insInput;
+    if (!field) return;
+    const v = num(e.target.value);
+    const st = state.insights;
+    if (field === 'bg') st.bgTyped = v != null && v >= 1 && v <= 33 ? v : null;
+    if (field === 'carbs') st.carbs = v != null && v > 0 && v <= 300 ? Math.round(v) : null;
+    if (field === 'units') st.units = v != null && v > 0 && v <= 20 ? Math.round(v * 2) / 2 : null;
+    renderInsights();
+  });
 }
 
 // ---------------------------------------------------------------- Tray
@@ -1557,11 +1899,12 @@ function openDose({ correctionOnly = false } = {}) {
       const paintRecord = (r, bg) => {
         latest = { r, bg };
         if (!logReady()) { recordEl.innerHTML = ''; return; }
-        const lowWithFood = r.status === 'hypo' && carbs > 0;
-        if (r.status !== 'ok' && !lowWithFood) { recordEl.innerHTML = ''; return; }
-        if (lowWithFood) {
+        const isLow = r.status === 'hypo';
+        if (r.status !== 'ok' && !isLow) { recordEl.innerHTML = ''; return; }
+        if (isLow) {
           if (!$('#record-low', recordEl)) {
-            recordEl.innerHTML = `<div class="sheet-actions"><button class="btn btn-secondary" id="record-low">Record low treatment</button></div>`;
+            recordEl.innerHTML = `<div class="sheet-actions"><button class="btn btn-secondary" id="record-low">Record ${LOW_TREATMENT_G} g low treatment</button></div>
+              <p class="section-footer">15-15 rule: give ${LOW_TREATMENT_G} g of fast carbs, recheck in 15 minutes, and repeat if he’s still low. Record each one.</p>`;
           }
           return;
         }
@@ -1587,7 +1930,7 @@ function openDose({ correctionOnly = false } = {}) {
           id: newId(),
           type,
           at: new Date().toISOString(),
-          carbs,
+          carbs: type === 'low-treatment' ? LOW_TREATMENT_G : carbs,
           foods: lines.map((l) => ({ name: l.food.name, servings: l.servings, carbs: Math.round(lineCarbs(l.food, l.servings) * 10) / 10, source: l.food.source })),
           bg: bg != null && !Number.isNaN(bg) ? bg : null,
           bgSource: bg != null ? bgSourceNow() : null,
@@ -1601,7 +1944,9 @@ function openDose({ correctionOnly = false } = {}) {
         closeSheet();
         if (!correctionOnly) { state.meal = []; saveMeal(); renderTray(); refreshRows(); }
         await saveEvent(event);
-        toast(type === 'low-treatment' ? 'Low treatment saved to his log' : `${fmt(insulinGiven)} U saved to his log`, {
+        toast(type === 'low-treatment'
+          ? `${LOW_TREATMENT_G} g saved. Recheck in 15 minutes; if still below ${fmt(state.settings?.hypoThreshold ?? 4)}, give another ${LOW_TREATMENT_G} g and record it again.`
+          : `${fmt(insulinGiven)} U saved to his log`, {
           action: 'Undo',
           onAction: async () => {
             try { await removeEvent(event.id); } catch {}
@@ -2099,6 +2444,7 @@ function switchTab(tab) {
   if (tab === 'settings') renderSettings();
   if (tab === 'foods') renderFoods();
   if (tab === 'home') renderHome();
+  if (tab === 'insights') { renderInsights(); loadInsights(); }
   if (tray.expanded) setTrayExpanded(false);
   renderTray();
   scrollTo(0, state.scroll[tab] || 0);
@@ -2150,6 +2496,7 @@ function initEvents() {
 
   $('#foods-search').addEventListener('input', (e) => { state.foodsQuery = e.target.value; renderFoods(); });
   document.addEventListener('change', (e) => { if (e.target.id === 'alerts-high') toggleAlerts(e.target); });
+  initInsights();
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;

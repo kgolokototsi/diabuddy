@@ -29,6 +29,17 @@ Other things you can do:
 - **Disconnect this phone** (Settings) removes his data from the phone, e.g. before you hand it on.
 - **High-glucose alerts** (Settings → Alerts): when he has been 14 mmol/L or higher for 2.5 hours, the phone gets *"Glucose reading High for over 2.5 hours. Consider a correction dosage."* One alert per high spell. On iPhone this only works from the Home Screen icon. These add to the Dexcom and Libre alarms; they don't replace them.
 
+### Insights
+
+The **Insights** tab shows what his own history says. It never works out or suggests a dose.
+
+- **Low risk now:** from his current level and trend, how often he went low within 45 minutes in similar moments.
+- **Forecasts:** for a **meal** (from the meal in progress or typed carbs), a **low treatment** (15 g, the 15-15 rule: where he usually is at the 15-minute recheck and how often a second 15 g was needed) and a **correction** (where he usually is 3 hours later). Each shows a range from his most similar past ones, and how many it's based on.
+- **Time of day** and **After meals:** time in range by part of the day, and whether meals of each kind usually end high or low 3 hours later.
+- **This week:** a short summary written by Claude from the week's percentages and averages.
+
+It learns from the log, so **record doses and low treatments** ("Record as given", "Record 15 g low treatment"). Forecasts start after about 10 meals with full readings. The relay builds Insights each night.
+
 ### The food badges
 
 | Badge | Meaning |

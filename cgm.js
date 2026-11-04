@@ -61,7 +61,11 @@ const MESSAGES = {
   bad_subscription: 'This phone’s browser gave an alert address DiaBuddy can’t use.',
   not_subscribed: 'Turn alerts on first.',
   push_failed: 'The test alert didn’t go through. Try again in a minute.',
-  log_unavailable:'The log isn’t set up on the relay.',
+  summary_needs_data: 'The summary needs at least 3 days of readings this week.',
+  summary_refresh_limit: 'It was already rewritten today. Try again tomorrow.',
+  summary_not_configured: 'Weekly summaries need the label-reader key on the relay.',
+  summary_unavailable: 'Claude couldn’t write it just now. Try again later.',
+  log_unavailable: 'The log isn’t set up on the relay.',
 };
 
 export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } = {}) {

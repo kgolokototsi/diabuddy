@@ -16,12 +16,14 @@ DiaBuddy handles a child's glucose readings, insulin doses and dose settings. Un
 | Family foods | Cloudflare KV (`food:…`) | Connected phones | Until removed |
 | Phone records | Cloudflare KV (`device:<sha256 of key>`) | Admin phones (names and roles only) | Until removed |
 | Invites | Cloudflare KV (`invite:<sha256 of code>`) | No one; they're only redeemed | 24 hours, single use |
+| Insights: one summary per day (time-of-day percentages, meal/low/correction response curves, 15-minute samples) | Cloudflare KV (`insights-day:<date>`, `insights-done`) | Connected phones | 120 days, like the readings |
+| Weekly summary written by Claude | Cloudflare KV (`insights-summary:<week>`) | Connected phones | 1 year |
 | Alert subscriptions (a phone's push address and keys) | Cloudflare KV (`push:<device id>`, `high-alert`) | Only the relay | Until the phone turns alerts off or is removed |
 | Dexcom / LibreLinkUp logins, Anthropic API key, alert signing key (`VAPID_PRIVATE_JWK`) | Cloudflare Worker secrets (encrypted) | Only the relay code | Until rotated |
 | Each phone's own key, cached settings, meal in progress | That phone's browser storage | That phone | Until "Disconnect this phone" |
 | App code, USDA/Open Food Facts food data | Private GitHub repo; Cloudflare static assets | Public (no personal data) | — |
 
-Label photos are sent to Anthropic to be read and aren't stored by DiaBuddy. High-glucose alerts are encrypted for each phone (Web Push, RFC 8291) before they leave the relay, so the push service (Google, Apple, Mozilla, Microsoft) passes them on but can't read them. Under Anthropic's commercial API terms, inputs aren't used for training by default.
+Label photos are sent to Anthropic to be read and aren't stored by DiaBuddy. The weekly Insights summary sends Anthropic only percentages, medians and counts for the week (no readings, no meal times, no names). High-glucose alerts are encrypted for each phone (Web Push, RFC 8291) before they leave the relay, so the push service (Google, Apple, Mozilla, Microsoft) passes them on but can't read them. Under Anthropic's commercial API terms, inputs aren't used for training by default.
 
 The repo was public before 4 November 2026. Its Git history still contains old `settings.json` versions (his dose numbers). Making the repo private hides them. Removing them for good would mean re-creating the repo.
 
@@ -70,7 +72,7 @@ The repo was public before 4 November 2026. Its Git history still contains old `
 | **The Anthropic key may have leaked** | Create a new key in the DiaBuddy workspace. In `worker/` run `npx wrangler secret put ANTHROPIC_API_KEY`, then delete the old key in the Console. Check usage for anything unexpected. |
 | **The Dexcom or LibreLinkUp password may have leaked** | Change it with Dexcom or Abbott, then run `npx wrangler secret put DEXCOM_PASSWORD` (or `LIBRE_PASSWORD`). |
 | **This PC is lost or compromised** | In Cloudflare: change your password, revoke Wrangler's login (My Profile → API Tokens), rotate every Worker secret above. In GitHub: revoke tokens and sessions. In Anthropic: rotate the key. |
-| **His data must be deleted** (POPIA request, or leaving DiaBuddy) | Admin: Settings → **Delete his stored data**. Cloudflare allows 1,000 deletions a day, so run it again if it says some are left. |
+| **His data must be deleted** (POPIA request, or leaving DiaBuddy) | Admin: Settings → **Delete his stored data** (Insights built from that data go with it). Cloudflare allows 1,000 deletions a day, so run it again if it says some are left. |
 
 ## Routine
 

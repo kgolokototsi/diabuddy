@@ -238,7 +238,8 @@ test('scheduled job logs each new reading once, and /latest returns them as minu
     await runScheduled(w, env);
     await runScheduled(w, env); // same reading again: no extra write
   }
-  assert.equal(LOG.writes, 11);
+  // 11 new readings, plus 2 one-off writes from the insights job finding no older days to build.
+  assert.equal(LOG.writes, 13);
   const body = await (await get(w, env)).json();
   assert.ok(body.history.length >= 11, `got ${body.history.length} points`);
   const times = body.history.map((p) => Date.parse(p.time));

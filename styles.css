@@ -32,6 +32,12 @@
   --orange: #8a5300;
   --orange-soft: rgba(196, 120, 0, 0.1);
   --high: #d35400; /* a high reading: brighter than --orange, still readable at the reading's size */
+  /* Time-of-day bands (validated for colour-blind separation): low, in range, then a light
+     and a strong step of one hue for 10–14 and 14+. */
+  --band-low: #b8231f;
+  --band-in: #2a8f6e;
+  --band-mid: #eba16b;
+  --band-high: #c45000;
   --material: rgba(250, 250, 252, 0.82);
   --material-edge: rgba(0, 0, 0, 0.08);
   --scrim: rgba(0, 0, 0, 0.28);
@@ -77,6 +83,10 @@
     --orange: #ffbf5a;
     --orange-soft: rgba(255, 191, 90, 0.12);
     --high: #ff9a3c;
+    --band-low: #e85a4f;
+    --band-in: #2c9f86;
+    --band-mid: #f0a06a;
+    --band-high: #e5600f;
     --material: rgba(30, 31, 35, 0.84);
     --material-edge: rgba(255, 255, 255, 0.08);
     --scrim: rgba(0, 0, 0, 0.5);
@@ -396,6 +406,61 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 .trend-caption strong { font-size: 0.875rem; font-weight: 650; color: var(--label); }
 .trend-key { margin: 2px 0 0; font-size: 0.6875rem; color: var(--label-2); text-align: center; }
 .trend-gap { fill: var(--label-3); opacity: 0.14; stroke: none; }
+
+/* ---------- Insights ---------- */
+
+.progress { display: block; height: 6px; margin-top: 10px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
+.progress span { display: block; height: 100%; border-radius: 3px; background: var(--chart); }
+.summary-row .row-title { font-size: 1.0625rem; line-height: 1.35; }
+.summary-points { margin: 8px 0 0; padding-left: 1.1em; color: var(--label); font-size: 0.9375rem; line-height: 1.45; }
+.summary-points li + li { margin-top: 4px; }
+.summary-team { display: flex; gap: 8px; margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--orange-soft); font-size: 0.875rem; line-height: 1.4; }
+.summary-team svg { flex: none; width: 18px; height: 18px; color: var(--orange); }
+.low-risk { gap: 12px; }
+.low-risk > svg { flex: none; width: 22px; height: 22px; align-self: flex-start; margin-top: 2px; }
+.low-risk.risk-high { background: var(--red-soft); }
+.low-risk.risk-high > svg { color: var(--red); }
+.low-risk.risk-some { background: var(--orange-soft); }
+.low-risk.risk-some > svg { color: var(--orange); }
+.ins-seg { margin: 12px 16px 4px; }
+.ins-chips { padding: 4px 16px 10px; margin: 0; }
+.ins-fields .row:first-child::before { display: none; }
+.forecast { padding: 6px 16px 14px; border-top: 0.5px solid var(--sep); }
+.forecast > .row { padding-left: 0; padding-right: 0; }
+.forecast > .row::before { display: none; }
+.forecast .banner { margin: 10px 0 0; }
+.forecast-chart { display: block; width: 100%; height: auto; margin-top: 8px; overflow: visible; stroke: none; }
+.forecast-chart text, .forecast-chart rect, .forecast-chart polygon { stroke: none; }
+.low-risk strong { display: inline; }
+.fc-band { fill: var(--chart); opacity: 0.18; }
+.fc-line { fill: none; stroke: var(--chart); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fc-dot { fill: var(--chart); stroke: var(--card); stroke-width: 2; }
+.fc-zero { stroke: var(--sep); stroke-width: 1; }
+.fc-recheck { stroke: var(--label-3); stroke-width: 1; stroke-dasharray: 3 3; }
+.fc-label, .fc-axis { fill: var(--label-2); font-size: 9px; font-family: inherit; }
+.fc-hit { fill: transparent; }
+.fc-hit:hover { fill: var(--fill); }
+.forecast-caption { margin: 8px 0 0; font-size: 0.9375rem; line-height: 1.45; color: var(--label); }
+.band-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 16px 2px; font-size: 0.75rem; color: var(--label-2); }
+.band-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.band-legend i { width: 10px; height: 10px; border-radius: 3px; }
+.b-low { background: var(--band-low); }
+.b-in { background: var(--band-in); }
+.b-mid { background: var(--band-mid); }
+.b-high { background: var(--band-high); }
+.block-row .row-main { gap: 6px; }
+.block-hours { font-weight: 400; color: var(--label-2); font-size: 0.8125rem; margin-left: 4px; }
+.band-bar { display: flex; gap: 2px; height: 10px; border-radius: 5px; overflow: hidden; background: var(--fill); }
+.band-bar span { display: block; height: 100%; }
+.band-table { width: calc(100% - 32px); margin: 8px 16px; border-collapse: collapse; font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+.band-table th, .band-table td { padding: 8px 4px; text-align: right; border-bottom: 0.5px solid var(--sep); }
+.band-table th[scope="row"], .band-table thead th:first-child { text-align: left; }
+.band-table thead th { font-weight: 600; color: var(--label-2); font-size: 0.75rem; }
+.ins-tag { flex: none; padding: 4px 9px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--fill); color: var(--label-2); white-space: nowrap; }
+.ins-tag.tag-ok { background: var(--green-soft); color: var(--green); }
+.ins-tag.tag-high { background: var(--orange-soft); color: var(--orange); }
+.ins-tag.tag-low { background: var(--red-soft); color: var(--red); }
+.insights-foot { margin: 18px var(--gutter) 8px; font-size: 0.75rem; line-height: 1.45; color: var(--label-2); text-align: center; }
 
 
 /* Today's log on Home */
