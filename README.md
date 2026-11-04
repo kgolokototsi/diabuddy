@@ -141,7 +141,7 @@ The relay reads the label with Claude (Anthropic's AI), using the family relay. 
 cd diabuddyworker
 node node_moduleswranglerinwrangler.js secret put ANTHROPIC_API_KEY
 ```
-Each photo costs roughly one or two US cents. The relay allows 60 photos a day, so a leaked family link can't run up the bill.
+Each photo costs about 2–4 US cents (Claude Opus 5.5). The relay allows 60 photos a day, so a leaked family link can't run up the bill.
 
 ## His log
 
