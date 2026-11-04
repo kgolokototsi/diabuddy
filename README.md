@@ -4,7 +4,7 @@ A carb counter and insulin dose calculator for the family. Pick what he's eating
 
 **Address:** https://diabuddy-dexcom.diabuddy-dexcom.workers.dev
 
-Each phone joins with its own invite link from the admin. How DiaBuddy protects his data is described in [SECURITY.md](SECURITY.md).
+Each phone joins with its own invite link from the admin. How DiaBuddy protects his data is described in [SECURITY.md](SECURITY.md). What's planned next is in [ROADMAP.md](ROADMAP.md).
 
 > DiaBuddy is a calculator, not medical advice. Always follow his diabetes team's plan and use your own judgement.
 
