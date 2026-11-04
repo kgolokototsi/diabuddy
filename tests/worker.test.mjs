@@ -74,6 +74,21 @@ test('wrong or missing key is rejected without calling any sensor', async () => 
   assert.deepEqual(calls, []);
 });
 
+test('a separate TV key works alongside the family key, and either can be revoked on its own', async () => {
+  const w = await load();
+  const env = { ...dexEnv, TV_KEY: 'tv-key-456' };
+  assert.equal((await get(w, env, 'tv-key-456')).status, 200);
+  assert.equal((await get(w, env, 'family-key-123')).status, 200);
+  assert.equal((await get(w, { ...env, TV_KEY: undefined }, 'tv-key-456')).status, 401);
+  assert.equal((await get(w, { ...env, FAMILY_KEY: undefined }, 'family-key-123')).status, 401);
+});
+
+test('a TV app (Origin file://) gets an allow-origin header it can use', async () => {
+  const w = await load();
+  const res = await w.fetch(new Request('https://relay.example/latest', { headers: { Origin: 'file://', 'X-DiaBuddy-Key': 'family-key-123' } }), dexEnv);
+  assert.equal(res.headers.get('Access-Control-Allow-Origin'), 'file://');
+});
+
 test('no sensor set up → not_configured', async () => {
   const w = await load();
   assert.equal((await (await get(w, base)).json()).error, 'not_configured');

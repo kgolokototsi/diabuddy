@@ -7,6 +7,8 @@
 //
 // Secrets (Cloudflare dashboard → Worker → Settings → Variables and Secrets):
 //   FAMILY_KEY       the key from the DiaBuddy family link
+//   TV_KEY           optional second key for the home-screen TV app, so it can be revoked without
+//                    touching the family phones
 //   DEXCOM_USERNAME  his Dexcom account username/email (the one his Dexcom app uses)
 //   DEXCOM_PASSWORD  that account's password
 //   LIBRE_EMAIL      a LibreLinkUp follower account that his LibreLink app shares with
@@ -236,7 +238,8 @@ function safeEqual(a, b) {
 
 function corsHeaders(env, request) {
   const origin = request.headers.get('Origin') || '';
-  const allowed = [env.ALLOWED_ORIGIN || 'https://kgolokototsi.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765'];
+  // file:// and null are what a Tizen TV app sends; the key, not the origin, is what protects the data.
+  const allowed = [env.ALLOWED_ORIGIN || 'https://kgolokototsi.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765', 'file://', 'null'];
   return {
     'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -264,8 +267,11 @@ export default {
     const sources = [];
     if (env.DEXCOM_USERNAME && env.DEXCOM_PASSWORD) sources.push(['dexcom', dexcomLatest]);
     if (env.LIBRE_EMAIL && env.LIBRE_PASSWORD) sources.push(['libre', libreLatest]);
-    if (!env.FAMILY_KEY || !sources.length) return json({ error: 'not_configured' }, 500, cors);
-    if (!safeEqual(request.headers.get('X-DiaBuddy-Key') || '', env.FAMILY_KEY)) return json({ error: 'bad_key' }, 401, cors);
+    const keys = [env.FAMILY_KEY, env.TV_KEY].filter(Boolean);
+    if (!keys.length || !sources.length) return json({ error: 'not_configured' }, 500, cors);
+    const given = request.headers.get('X-DiaBuddy-Key') || '';
+    // Check every key (no early exit) so timing doesn't reveal which one matched.
+    if (!keys.map((k) => safeEqual(given, k)).includes(true)) return json({ error: 'bad_key' }, 401, cors);
 
     // Ask every set-up sensor at once and use the newest reading.
     const results = await Promise.allSettled(sources.map(([, read]) => read(env)));
