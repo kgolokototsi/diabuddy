@@ -2,7 +2,7 @@
 //
 // The API (readings, log, settings, phones) shares this origin, and those responses
 // hold his personal data, so they are never cached here: only the files below are.
-const VERSION = 'diabuddy-v22';
+const VERSION = 'diabuddy-v23';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'spring.js', 'config.js', 'cgm.js', 'alerts.js', 'fonts/inter-latin.woff2',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'data/foods.json',
@@ -28,7 +28,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('push', (e) => {
   let msg = {};
   try { msg = e.data?.json() || {}; } catch {}
-  e.waitUntil(self.registration.showNotification(String(msg.title || 'DiaBuddy').slice(0, 80), {
+  e.waitUntil(self.registration.showNotification(String(msg.title || 'Alert').slice(0, 80), {
     body: String(msg.body || '').slice(0, 240),
     icon: 'icons/icon-192.png',
     tag: String(msg.tag || 'diabuddy').slice(0, 32),

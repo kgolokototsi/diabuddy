@@ -173,7 +173,8 @@ export async function checkHigh(env, logged, now = Date.now()) {
   if (alerted || newest.time - since < HIGH_FOR_MS) return null;
 
   const mmol = Math.round((newest.mgdl / MGDL_PER_MMOL) * 10) / 10;
-  const message = { title: `DiaBuddy · ${mmol.toFixed(1)} mmol/L`, body: HIGH_MESSAGE, tag: 'high-glucose' };
+  // No app name in the title: the phone already shows "DiaBuddy" above every alert.
+  const message = { title: `High: ${mmol.toFixed(1)} mmol/L`, body: HIGH_MESSAGE, tag: 'high-glucose' };
   // Mark it first, so a slow send can't lead to a second alert from the next run.
   await env.LOG.put(ALERT_KEY, new Date(since).toISOString(), { expirationTtl: 24 * 3600 });
   return sendToAll(env, message);

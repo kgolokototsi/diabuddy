@@ -666,7 +666,7 @@ export default {
       if (path === '/push/test' && method === 'POST') {
         const sub = await env.LOG.get(key, 'json');
         if (!sub) return json({ error: 'not_subscribed' }, 400, cors);
-        const result = await sendPush(env, sub, { title: 'DiaBuddy', body: 'Test alert. High-glucose alerts are on for this phone.', tag: 'test' });
+        const result = await sendPush(env, sub, { title: 'Test alert', body: 'High-glucose alerts are on for this phone.', tag: 'test' });
         if (result === 'gone') await env.LOG.delete(key);
         return result === 'sent' ? json({ sent: true }, 200, cors) : json({ error: 'push_failed' }, 502, cors);
       }

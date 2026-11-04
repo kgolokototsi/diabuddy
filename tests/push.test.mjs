@@ -118,7 +118,7 @@ test('pushes are signed with the relay VAPID key for the push service', async ()
   const pub = await subtle.importKey('raw', unb64u(k), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
   assert.ok(await subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, pub, unb64u(s), enc.encode(`${h}.${c}`)));
   assert.equal(p.headers['Content-Encoding'], 'aes128gcm');
-  assert.match(await decrypt(phone, p.body), /Test alert/);
+  assert.equal(JSON.parse(await decrypt(phone, p.body)).title, 'Test alert');
 });
 
 test('high spell: 2.5 hours at 14 or more, broken by a lower reading or a long gap', () => {
@@ -144,7 +144,7 @@ test('alerts every subscribed phone once per spell, and again after the next spe
   assert.equal(pushed.length, 2);
   const msg = JSON.parse(await decrypt(phone, pushed.find((p) => p.url.includes('fcm')).body));
   assert.equal(msg.body, 'Glucose reading High for over 2.5 hours. Consider a correction dosage.');
-  assert.match(msg.title, /15\.2 mmol\/L/);
+  assert.equal(msg.title, 'High: 15.2 mmol/L', 'no app name: the phone shows it already');
 
   assert.equal(await checkHigh(env, readings(160, 0, 15, now), now), null, 'same spell: no second alert');
   assert.equal(await checkHigh(env, readings(170, 25, 15, now), now), null, 'no recent readings: nothing changes');
