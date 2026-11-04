@@ -312,7 +312,55 @@ function renderCgmCard() {
     <span class="cgm-value">${readingValue(r)}<span class="cgm-arrow" aria-hidden="true">${r.arrow}</span></span>
     <span class="row-main"><span class="row-title">mmol/L · ${esc(r.trendText)}</span>
       <span class="row-sub">${sourceName(r)} · ${readingAge(r)}${stale ? ' · too old to use for a dose' : ''}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
-  </button>`);
+  </button>
+  ${trendChart(r)}`);
+}
+
+const clockTime = (iso) => new Date(iso).toLocaleTimeString('en-ZA', { hour: '2-digit', minute: '2-digit', hour12: false });
+
+// Small last-hour chart of the real readings only: no smoothing, no made-up points.
+function trendChart(r, now = Date.now()) {
+  const points = (r.history || [])
+    .map((p) => ({ mmol: p.mmol, t: Date.parse(p.time), time: p.time }))
+    .filter((p) => now - p.t <= 60 * 60000)
+    .sort((a, b) => a.t - b.t);
+  if (!points.length) return '';
+
+  const W = 300, H = 64, padX = 8, padY = 8;
+  const values = points.map((p) => p.mmol);
+  const lo = Math.min(3, Math.min(...values) - 0.5);
+  const hi = Math.max(11, Math.max(...values) + 0.5);
+  const x = (t) => padX + ((t - (now - 60 * 60000)) / (60 * 60000)) * (W - 2 * padX);
+  const y = (v) => padY + (1 - (v - lo) / (hi - lo)) * (H - 2 * padY);
+  const low = state.settings?.hypoThreshold ?? 4;
+
+  // Break the line where readings are more than 20 minutes apart.
+  const segments = [];
+  for (const p of points) {
+    const last = segments.at(-1);
+    if (last && p.t - last.at(-1).t <= 20 * 60000) last.push(p);
+    else segments.push([p]);
+  }
+  const lines = segments.filter((s) => s.length > 1)
+    .map((s) => `<polyline points="${s.map((p) => `${x(p.t).toFixed(1)},${y(p.mmol).toFixed(1)}`).join(' ')}" />`).join('');
+  const dots = points.map((p, i) => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.mmol).toFixed(1)}" r="${i === points.length - 1 ? 4.5 : 3}" class="${i === points.length - 1 ? 'trend-last' : ''}"><title>${fmt(p.mmol)} at ${clockTime(p.time)}</title></circle>`).join('');
+
+  const prev = points.length > 1 ? points.at(-2) : null;
+  const cur = points.at(-1);
+  const change = prev
+    ? `${cur.mmol - prev.mmol > 0 ? '+' : cur.mmol - prev.mmol < 0 ? '−' : '±'}${fmt(Math.abs(cur.mmol - prev.mmol))} since ${clockTime(prev.time)}`
+    : 'One reading in the last hour';
+  const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ')}. Shaded band is ${low} to 10 mmol/L.`;
+
+  return `<div class="trend" role="group" aria-label="Last hour of readings">
+    <svg class="trend-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
+      <rect class="trend-band" x="0" y="${y(10).toFixed(1)}" width="${W}" height="${(y(low) - y(10)).toFixed(1)}" rx="6" />
+      <line class="trend-low" x1="0" x2="${W}" y1="${y(low).toFixed(1)}" y2="${y(low).toFixed(1)}" />
+      ${lines}${dots}
+    </svg>
+    <div class="trend-caption"><span>1 h ago</span><strong>${esc(change)}</strong><span>now</span></div>
+    <p class="trend-key">Shaded: ${low}–10 mmol/L · dashed line: low (${low})</p>
+  </div>`;
 }
 
 function refreshCgm() {

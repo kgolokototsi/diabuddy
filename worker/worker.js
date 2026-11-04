@@ -72,7 +72,7 @@ async function dexcomLogin(env) {
 }
 
 async function dexcomLatest(env) {
-  const read = (sid) => dexcomPost(env, `/Publisher/ReadPublisherLatestGlucoseValues?sessionId=${encodeURIComponent(sid)}&minutes=1440&maxCount=7`);
+  const read = (sid) => dexcomPost(env, `/Publisher/ReadPublisherLatestGlucoseValues?sessionId=${encodeURIComponent(sid)}&minutes=1440&maxCount=13`);
   try {
     if (!dexcomSession) dexcomSession = await dexcomLogin(env);
     let values;
@@ -286,9 +286,9 @@ export default {
     }
     const now = Date.now();
     readings.sort((a, b) => b.time - a.time);
-    // The newest sensor's readings from the last 30 minutes, oldest first.
+    // The newest sensor's readings from the last hour, oldest first.
     const history = (readings[0].history || [])
-      .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 30 * 60000)
+      .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 60 * 60000)
       .sort((a, b) => a.time - b.time)
       .filter((p, i, all) => i === 0 || p.time !== all[i - 1].time)
       .map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));

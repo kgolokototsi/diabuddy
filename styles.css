@@ -365,6 +365,34 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 .cgm-note { min-height: 0; padding-top: 0; padding-bottom: 12px; }
 .cgm-note::before { display: none; }
 
+/* Last-hour trend under the reading */
+.trend { position: relative; padding: 0 16px 12px; }
+.trend::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: 0.5px solid var(--sep); }
+.trend-chart { display: block; width: 100%; height: auto; margin-top: 10px; overflow: visible; }
+.trend-band { fill: var(--green-soft); }
+.trend-low { stroke: var(--red); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.55; }
+.trend-chart polyline { fill: none; stroke: var(--tint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.trend-chart circle { fill: var(--tint); stroke: var(--card); stroke-width: 2; }
+.trend-chart circle.trend-last { stroke-width: 2.5; }
+.trend-caption {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+}
+.trend-caption strong { font-size: 0.875rem; font-weight: 650; color: var(--label); }
+.trend-key { margin: 2px 0 0; font-size: 0.6875rem; color: var(--label-2); text-align: center; }
+.cgm-stale ~ .trend .trend-chart { opacity: 0.6; }
+/* Dark mode: a slightly deeper coral keeps the line in the validated lightness band */
+@media (prefers-color-scheme: dark) {
+  .trend-chart polyline { stroke: #dc6f50; }
+  .trend-chart circle { fill: #dc6f50; }
+}
+
 /* ---------- Banners ---------- */
 
 .banner {

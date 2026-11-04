@@ -61,6 +61,7 @@ export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } =
     if (!reading) throw new Error(MESSAGES.no_readings);
     // Recompute age on this device so a cached response can't look fresher than it is.
     reading.ageMinutes = Math.max(0, Math.round((Date.now() - Date.parse(reading.time)) / 60000));
+    reading.history = (body.history || []).filter((p) => Number.isFinite(p.mmol) && Date.parse(p.time));
     return reading;
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('No answer from his sensor. Check the connection.');
