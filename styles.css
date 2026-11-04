@@ -53,13 +53,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #000000;
-    --card: #1c1c1e;
-    --card-raised: #2c2c2e;
-    --sheet-bg: #1c1c1e;
+    /* Graphite rather than pure black: softer, with cards lifted a step for depth. */
+    --bg: #1c1d21;
+    --card: #2a2b30;
+    --card-raised: #35363c;
+    --sheet-bg: #232429;
     --label: #f5f5f7;
     --label-2: #a1a1a6;
-    --label-3: #636366;
+    --label-3: #6e6f75;
     --sep: rgba(255, 255, 255, 0.1);
     --fill: rgba(255, 255, 255, 0.06);
     --fill-2: rgba(255, 255, 255, 0.12);
@@ -74,10 +75,10 @@
     --red-soft: rgba(255, 107, 96, 0.14);
     --orange: #ffbf5a;
     --orange-soft: rgba(255, 191, 90, 0.12);
-    --material: rgba(22, 22, 24, 0.82);
+    --material: rgba(30, 31, 35, 0.84);
     --material-edge: rgba(255, 255, 255, 0.08);
-    --scrim: rgba(0, 0, 0, 0.6);
-    --sheet-shadow: 0 -12px 40px rgba(0, 0, 0, 0.6);
+    --scrim: rgba(0, 0, 0, 0.5);
+    --sheet-shadow: 0 -12px 40px rgba(0, 0, 0, 0.45);
     --card-shadow: none;
   }
 }

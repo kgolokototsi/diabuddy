@@ -439,7 +439,8 @@ function renderGreeting(now = new Date()) {
   // "Wednesday 4 November" (en-ZA would give "Wednesday, 04 November").
   const part = (opts) => now.toLocaleDateString('en-GB', opts);
   $('#today-date').textContent = `${part({ weekday: 'long' })} ${now.getDate()} ${part({ month: 'long' })}`;
-  $('#foods-sub').textContent = `Tap what he’s eating for ${mealOfDay(now)}`;
+  const meal = mealOfDay(now);
+  $('#foods-sub').textContent = `Tap what he’s eating for ${meal === 'snack' ? 'a snack' : meal}`;
 }
 
 function renderSetupBanner() {
