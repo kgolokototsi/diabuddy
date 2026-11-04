@@ -31,6 +31,7 @@
   --red-soft: rgba(192, 34, 26, 0.08);
   --orange: #8a5300;
   --orange-soft: rgba(196, 120, 0, 0.1);
+  --high: #d35400; /* a high reading: brighter than --orange, still readable at the reading's size */
   --material: rgba(250, 250, 252, 0.82);
   --material-edge: rgba(0, 0, 0, 0.08);
   --scrim: rgba(0, 0, 0, 0.28);
@@ -75,6 +76,7 @@
     --red-soft: rgba(255, 107, 96, 0.14);
     --orange: #ffbf5a;
     --orange-soft: rgba(255, 191, 90, 0.12);
+    --high: #ff9a3c;
     --material: rgba(30, 31, 35, 0.84);
     --material-edge: rgba(255, 255, 255, 0.08);
     --scrim: rgba(0, 0, 0, 0.5);
@@ -366,6 +368,7 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 }
 .cgm-arrow { font-size: 1.5rem; font-weight: 600; color: var(--tint); }
 .cgm-low .cgm-value, .cgm-low .cgm-arrow { color: var(--red); }
+.cgm-high .cgm-value, .cgm-high .cgm-arrow { color: var(--high); }
 .cgm-stale .cgm-value, .cgm-stale .cgm-arrow { color: var(--label-3); }
 .cgm-note { min-height: 0; padding-top: 0; padding-bottom: 12px; }
 .cgm-note::before { display: none; }
