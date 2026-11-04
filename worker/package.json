@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "deploy": "node ../scripts/build-site.mjs && wrangler deploy",
+    "tail": "wrangler tail",
+    "build": "node ../scripts/build-site.mjs"
   },
   "devDependencies": {
     "wrangler": "4.152.0"

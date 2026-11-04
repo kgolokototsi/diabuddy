@@ -2,20 +2,20 @@
 
 A carb counter and insulin dose calculator for the family. Pick what he's eating, enter his blood glucose, and DiaBuddy shows the dose and how it was worked out.
 
-**Open it:** https://kgolokototsi.github.io/diabuddy/
+**Address:** https://diabuddy-dexcom.diabuddy-dexcom.workers.dev
+
+Each phone joins with its own invite link from the admin. How DiaBuddy protects his data is described in [SECURITY.md](SECURITY.md).
 
 > DiaBuddy is a calculator, not medical advice. Always follow his diabetes team's plan and use your own judgement.
 
 ## For the family
 
-1. Open the link on your phone and add it to your home screen:
-   - **iPhone:** Safari → Share → *Add to Home Screen*
-   - **Android:** Chrome → ⋮ → *Add to Home screen*
-   
-   It then works like an app, and it works without signal after the first open.
+1. **Join.** Open the invite link the admin sent you. Give your phone a name ("Gran's iPhone") and tap **Connect**. An invite works once and expires after 24 hours.
+   - **iPhone:** a Home Screen app keeps its own storage, separate from Safari. Add DiaBuddy to your Home Screen first (Safari → Share → *Add to Home Screen*), open it from the icon, then go to Settings → **Connect this phone** and paste the invite. If you open the invite in Safari, DiaBuddy offers to copy it for you.
+   - **Android:** open the invite in Chrome, connect, then Chrome → ⋮ → *Add to Home screen*.
 2. **Home** has two big choices:
    - **Meal dose:** opens **Foods**, the one place for every food. His usual foods are listed first. Tap each food he's eating; each tap adds one serving.
-   - **BG correction:** for a high BG when he isn't eating. Enter his BG and you get the correction.
+   - **Correction:** for a high BG when he isn't eating. Enter his BG and you get the correction.
 3. Open the meal tray at the bottom of Foods to change amounts: use − / + for half servings, or tap a food to enter grams.
 4. Tap **Work out dose** and enter his BG in mmol/L. The dose is rounded to the nearest 0.5 unit.
 
@@ -23,37 +23,23 @@ Other things you can do:
 
 - **Carbs from a label:** type the carbs from a packet, either the total or per 100 g plus the grams eaten.
 - **Barcode:** find a packaged product by its barcode. On Android you can scan with the camera.
-- **Meal so far:** if you leave Foods partway through a meal, Home shows it so you can carry on.
+- **Meal in progress:** if you leave Foods partway through a meal, Home shows it so you can carry on.
 - **Insulin in the last 3 hours:** switch this on if he's had insulin recently. DiaBuddy then leaves out the high-BG correction so doses don't stack.
 - If his BG is **below 4.0**, DiaBuddy won't show a dose. Treat the low first.
+- **Disconnect this phone** (Settings) removes his data from the phone, e.g. before you hand it on.
 
 ### The food badges
 
 | Badge | Meaning |
 | --- | --- |
 | Notebook | From the handwritten Food Guide. The family has already checked these. |
-| Family | Added by the admin. |
+| Family | Added by the family (label photos, home recipes). |
 | USDA | From USDA FoodData Central, net carbs (fibre removed). |
 | Check label | Packaged SA products from Open Food Facts. These are entered by the public, so compare with the packet. |
 
 ## For the admin
 
-His carb ratio, correction factor and target live in `settings.json` in this repo. Everyone's app reads that file, but only someone holding a GitHub token for the repo can change it. Every change is a commit, so the [history of settings.json](https://github.com/kgolokototsi/diabuddy/commits/main/settings.json) records who changed what and when.
-
-### Unlock admin on your phone (once)
-
-1. On GitHub, go to **Settings → Developer settings → Fine-grained tokens → [Generate new token](https://github.com/settings/personal-access-tokens/new)**.
-2. Fill in the form:
-   - Name: `DiaBuddy admin`
-   - Expiration: up to a year (set a reminder to renew it)
-   - Repository access: **Only select repositories → diabuddy**
-   - Permissions: **Contents → Read and write**
-3. Generate the token and copy it.
-4. In DiaBuddy, go to **Settings → Unlock admin**, paste the token and tap **Unlock**.
-
-The token is stored only on that phone and is sent only to GitHub. To remove it, tap **Lock admin on this device**. If a phone is lost, delete the token on GitHub.
-
-### What the admin can do
+An admin phone sees an extra **Admin** section in Settings:
 
 - **Change dose settings:**
   - carb ratio (g per unit)
@@ -63,14 +49,18 @@ The token is stored only on that phone and is sent only to GitHub. To remove it,
   - max-dose warning
   - rounding
   - whether to reduce the dose when BG is below target
-- **Add a family food:** a food with its carbs per serving. Everyone sees it.
-- **Save a packaged product to family foods** from its detail page, after checking it against the label.
 
-Family phones pick up changes the next time DiaBuddy is opened or brought back to the front.
+  They're stored privately in the relay, not in the code repo. Family phones pick up changes the next time DiaBuddy is opened or brought back to the front.
+- **Settings change history:** every change, with who made it.
+- **Phones:** everyone who can see his readings, with their access and when they were last used.
+  - **Invite a phone:** choose who it's for and the access (Family, View only for a TV, or Admin), then share the link privately. It works once, for 24 hours.
+  - **Remove** a phone: it stops working straight away. Do this for a lost phone, or for someone who no longer cares for him.
+  - **Turn off the old shared link:** shown until you do it. Once every phone has joined with an invite, this ends the old `#cgm=` family link.
+- **Delete his stored data:** readings, log and/or settings history, for example on a POPIA request.
 
-## Dexcom readings
+## Glucose readings (Dexcom)
 
-DiaBuddy can show his latest Dexcom reading and fill in the BG on the dose screen. A small relay runs on your free Cloudflare account (`worker/worker.js`). It logs into **Dexcom Share** and passes on only the latest reading. His Dexcom password is stored in Cloudflare and never reaches DiaBuddy or GitHub.
+DiaBuddy can show his latest Dexcom reading and fill in the BG on the dose screen. The relay (`worker/worker.js`, on your free Cloudflare account) logs into **Dexcom Share** and passes on only the latest reading. His Dexcom password is stored as an encrypted Cloudflare secret and never reaches a phone or GitHub.
 
 How the readings are used:
 
@@ -85,27 +75,16 @@ How the readings are used:
 
 ### Set it up (admin, once)
 
-1. **Dexcom app:** turn on Share and make sure at least one follower is invited. Share only works with a follower.
-2. **DiaBuddy:** go to Settings → **Set up Dexcom readings** and tap **Generate a new family key**. Copy the key and leave this screen open.
-3. **Cloudflare:** create a free account at https://dash.cloudflare.com/sign-up.
-4. Go to **Workers & Pages → Create → Create Worker**. Name it `diabuddy-dexcom` and tap **Deploy**.
-5. Tap **Edit code**, delete the sample code, paste in everything from [worker/worker.js](https://raw.githubusercontent.com/kgolokototsi/diabuddy/main/worker/worker.js), then tap **Deploy**.
-6. Open the Worker's **Settings → Variables and Secrets** and add these, then tap **Deploy**:
+1. In his **Dexcom app**, turn on Share and make sure at least one follower is invited. Share only works with a follower.
+2. In a terminal, type each command exactly as written, then type the value when it asks **"Enter a secret value"**:
+   ```powershell
+   cd diabuddy\worker
+   node node_modules\wrangler\bin\wrangler.js secret put DEXCOM_USERNAME
+   node node_modules\wrangler\bin\wrangler.js secret put DEXCOM_PASSWORD
+   ```
+   Enter his Dexcom username or email (the one his Dexcom app signs in with), then that account's password.
 
-   | Type | Name | Value |
-   | --- | --- | --- |
-   | Text | `DEXCOM_REGION` | `ous` (outside the US) |
-   | Text | `ALLOWED_ORIGIN` | `https://kgolokototsi.github.io` |
-   | Secret | `DEXCOM_USERNAME` | his Dexcom username or email, the one his Dexcom app signs in with |
-   | Secret | `DEXCOM_PASSWORD` | that account's password |
-   | Secret | `FAMILY_KEY` | the key from step 2 |
-   | Secret | `TV_KEY` | optional: a separate key for the home-screen TV app, revocable without touching family phones |
-
-7. Copy the Worker's address, which looks like `https://diabuddy-dexcom.<your-name>.workers.dev`.
-8. **DiaBuddy:** paste that address into **Relay address**, tap **Test connection** (it should show his current reading), then tap **Save**.
-9. Tap **Share the family link** and send it to family phones. Each person opens it once.
-
-To lock someone out, generate a new key and put it in Cloudflare as `FAMILY_KEY`. Then share the new family link with everyone who should keep access. If his Dexcom password changes, update `DEXCOM_PASSWORD` in Cloudflare.
+If his Dexcom password changes, run the `DEXCOM_PASSWORD` command again.
 
 ## Libre 2 readings
 
@@ -148,7 +127,7 @@ The relay reads the label with Claude (Anthropic's AI), using the family relay. 
 cd diabuddyworker
 node node_moduleswranglerinwrangler.js secret put ANTHROPIC_API_KEY
 ```
-Each photo costs about 2–4 US cents (Claude Opus 5.5). The relay allows 60 photos a day, so a leaked family link can't run up the bill.
+Each photo costs about 2–4 US cents (Claude Opus 5.5). The relay allows 3 photos a minute per phone and 60 a day overall, so the bill stays small even if a phone is misused.
 
 ## His log
 
@@ -179,24 +158,29 @@ total       = food dose + correction, never below 0, rounded to the nearest 0.5 
 
 ## For developers
 
-It's a static site with no build step: plain HTML, CSS and ES modules, hosted on GitHub Pages.
+Plain HTML, CSS and ES modules with no front-end build step. The app and the relay run in one Cloudflare Worker: the app is served as static assets from `dist/`, and the API is handled by `worker/worker.js`.
 
 | File | What it does |
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | UI |
 | `dose.js` | Dose maths (pure functions) |
 | `foods.js` | Food search, Open Food Facts |
-| `admin.js` | GitHub read/write of the shared files |
 | `spring.js` | Spring animations |
-| `cgm.js`, `worker/worker.js` | Glucose readings (Dexcom and Libre): app side, and the Cloudflare relay |
-| `sw.js` | Offline cache. Bump `VERSION` when you change app files. |
+| `cgm.js` | Talks to the relay: readings, log, foods, settings, phone key |
+| `config.js` | Relay address (same origin) and app version |
+| `sw.js` | Offline cache for app files only (never API responses). Bump `VERSION` when you change app files. |
+| `worker/worker.js` | Relay: API routes, Dexcom/Libre, log, foods, label photos, rate limits |
+| `worker/auth.js` | Invites, per-phone keys (stored hashed), roles |
+| `worker/settings.js` | Dose settings and their history |
+| `worker/label.js` | Reads label photos with Claude |
+| `scripts/build-site.mjs` | Copies only the app files into `dist/` and writes the security headers |
 | `data/foods.json` | Notebook + USDA foods, built by `scripts/build-foods.mjs` |
 | `data/za-products.json` | SA packaged products, built by `scripts/build-za-products.mjs` |
-| `data/foods-custom.json`, `settings.json` | Edited from the admin screen |
+| `data/foods-custom.json` | Older family foods (read-only; new ones live in the relay) |
 
 ```sh
-node --test tests/*.test.mjs        # dose maths tests
-python -m http.server 8765          # run locally at http://localhost:8765
+node --test tests/*.test.mjs        # dose maths, relay and access tests
+cd worker && npm run deploy         # build dist/ and deploy app + relay
 ```
 
 ### Rebuilding the food data

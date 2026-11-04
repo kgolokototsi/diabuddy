@@ -1,9 +1,8 @@
 import { calculateDose, parseBg, lineCarbs, isConfigured, BG_MIN, BG_MAX } from './dose.js';
 import { loadFoods, searchFoods, loadPackaged, lookupBarcode, CATEGORIES, SOURCE_LABEL } from './foods.js';
-import { readShared, writeShared, isAdmin, unlock, lock } from './admin.js';
 import { spring, project, rubberband, VelocityTracker } from './spring.js';
-import { REPO, APP_VERSION } from './config.js';
-import { getCgmKey, setCgmKey, consumeLinkKey, generateKey, familyLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
+import { RELAY_URL, APP_VERSION } from './config.js';
+import { getCgmKey, setCgmKey, consumeJoinCode, joinCodeFrom, inviteLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
 
 // ---------------------------------------------------------------- helpers
 
@@ -56,6 +55,7 @@ const state = {
   meal: [],
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
+  me: store.get('me', null), // { id, name, role, legacy } from the relay
   githubFoods: [],
   relayFoods: store.get('relay-foods', []),
   foodsQuery: '',
@@ -83,19 +83,46 @@ function restoreMeal() {
 
 async function loadSettings() {
   const before = JSON.stringify(state.settings);
-  try {
-    const { data, from } = await readShared('settings.json');
-    state.settings = data;
-    state.settingsMeta = { from, fetchedAt: Date.now() };
-    store.set('settings', { data, fetchedAt: Date.now() });
-  } catch {
-    const cached = store.get('settings');
-    if (cached) {
-      state.settings = cached.data;
-      state.settingsMeta = { from: 'cache', fetchedAt: cached.fetchedAt };
-    }
+  if (cgmReady()) {
+    try {
+      const { settings } = await relayFetch(RELAY_URL, '/settings');
+      // Numbers only: these values fill form fields and drive the dose.
+      for (const k of ['icr', 'cf', 'targetBg', 'hypoThreshold', 'maxDose', 'roundTo']) {
+        if (settings && settings[k] != null) settings[k] = Number.isFinite(Number(settings[k])) ? Number(settings[k]) : null;
+      }
+      state.settings = settings;
+      state.settingsMeta = { from: 'relay', fetchedAt: Date.now() };
+      store.set('settings', { data: settings, fetchedAt: Date.now() });
+      return JSON.stringify(state.settings) !== before;
+    } catch {}
+  }
+  const cached = store.get('settings');
+  if (cached && cgmReady()) {
+    state.settings = cached.data;
+    state.settingsMeta = { from: 'cache', fetchedAt: cached.fetchedAt };
   }
   return JSON.stringify(state.settings) !== before;
+}
+
+// Who is this phone? The role decides what Settings shows; the relay enforces it either way.
+async function loadMe() {
+  if (!getCgmKey()) { state.me = null; store.set('me', null); return; }
+  try {
+    const { device } = await relayFetch(RELAY_URL, '/me');
+    state.me = device;
+    store.set('me', device);
+  } catch (err) {
+    if (err.status === 401) { forgetThisPhone(); toast('This phone was removed. Ask the admin for a new invite link.'); }
+  }
+}
+
+function forgetThisPhone() {
+  setCgmKey('');
+  state.me = null;
+  state.settings = null;
+  state.cgm = { reading: null, error: null, at: 0, loading: false };
+  for (const k of ['me', 'settings', 'relay-foods', 'pending-events']) store.set(k, null);
+  try { localStorage.removeItem('diabuddy.meal'); } catch {}
 }
 
 // Family foods come from two places: the admin's GitHub file (older) and the relay,
@@ -121,7 +148,7 @@ async function loadAllFoods() {
 async function loadRelayFoods() {
   if (!cgmReady()) return;
   try {
-    const { foods } = await relayFetch(cgmUrl(), '/foods');
+    const { foods } = await relayFetch(RELAY_URL, '/foods');
     state.relayFoods = foods.map((f) => ({ ...f, source: 'custom', relay: true }));
     store.set('relay-foods', state.relayFoods);
     setCustomFoods();
@@ -288,8 +315,9 @@ function refreshRows() {
 
 // ---------------------------------------------------------------- Glucose readings (Dexcom or Libre)
 
-const cgmUrl = () => state.settings?.cgmUrl || '';
-const cgmReady = () => Boolean(cgmUrl() && getCgmKey());
+const cgmUrl = () => RELAY_URL;
+const cgmReady = () => Boolean(getCgmKey());
+const isAdmin = () => state.me?.role === 'admin';
 let cgmPending = null;
 
 // One request serves every screen; readings only change every 5 minutes.
@@ -313,9 +341,8 @@ const readingValue = (r) => r.low ? 'LOW' : r.high ? 'HIGH' : fmt(r.mmol);
 function renderCgmCard() {
   const el = $('#cgm-card');
   if (!el) return;
-  if (!cgmUrl()) { el.innerHTML = ''; return; }
   if (!getCgmKey()) {
-    el.innerHTML = section(null, `<button class="row" data-action="cgm-key"><span class="row-main"><span class="row-title row-link">Show his glucose readings here</span><span class="row-sub">Open the family link from the admin, or enter the family key.</span></span>${ICON.chevron}</button>`);
+    el.innerHTML = section(null, `<button class="row" data-action="join"><span class="row-main"><span class="row-title row-link">Connect this phone</span><span class="row-sub">Open the invite link from the admin, or paste it here.</span></span>${ICON.chevron}</button>`);
     return;
   }
   const r = state.cgm.reading;
@@ -417,7 +444,9 @@ function renderGreeting(now = new Date()) {
 
 function renderSetupBanner() {
   const el = $('#setup-banner');
-  if (!state.settings) {
+  if (!getCgmKey()) {
+    el.innerHTML = `<div class="banner banner-info">${ICON.info}<div><strong>This phone isn’t connected yet</strong>Open the invite link the admin sent you, or tap “Connect this phone” below.</div></div>`;
+  } else if (!state.settings) {
     el.innerHTML = `<div class="banner banner-warn">${ICON.warn}<div><strong>Settings not loaded</strong>Connect to the internet once so DiaBuddy can load his carb ratio.</div></div>`;
   } else if (!isConfigured(state.settings)) {
     el.innerHTML = `<div class="banner banner-warn">${ICON.warn}<div><strong>Carb ratio not set yet</strong>You can count carbs, but doses need the admin to set his carb ratio, correction factor and target in Settings.</div></div>`;
@@ -483,7 +512,7 @@ async function saveEvent(event) {
 async function removeEvent(id) {
   const pending = store.get(PENDING_KEY, []);
   if (pending.some((e) => e.id === id)) store.set(PENDING_KEY, pending.filter((e) => e.id !== id));
-  else await relayFetch(cgmUrl(), `/events/${id}`, { method: 'DELETE' });
+  else await relayFetch(cgmUrl(), `/events/${encodeURIComponent(id)}`, { method: 'DELETE' });
   state.todayLog = (state.todayLog || []).filter((e) => e.id !== id);
   renderHome();
 }
@@ -636,20 +665,20 @@ function settingRow(label, value) {
   return `<div class="row"><span class="row-main"><span class="row-title">${esc(label)}</span></span><span class="row-value">${value}</span></div>`;
 }
 
-function cgmRows() {
-  const rows = [];
+function phoneRows() {
+  const me = state.me;
+  if (!getCgmKey()) {
+    return `<button class="row" data-action="join"><span class="row-main"><span class="row-title row-link">Connect this phone</span><span class="row-sub">Open the invite link from the admin, or paste it here.</span></span>${ICON.chevron}</button>`;
+  }
   const r = state.cgm.reading;
-  const status = !cgmUrl() ? 'Not set up'
-    : !getCgmKey() ? 'Needs the family key'
-    : state.cgm.error && !r ? 'Not working'
-    : r ? `${readingValue(r)} ${r.arrow} · ${readingAge(r)}` : 'Connecting…';
-  rows.push(settingRow('Status', status));
-  if (state.cgm.error && getCgmKey()) rows.push(`<div class="row"><span class="row-main"><span class="row-sub">${esc(state.cgm.error)}</span></span></div>`);
-  if (isAdmin()) rows.push(`<button class="row" data-action="cgm-setup"><span class="row-main"><span class="row-title row-link">${cgmUrl() ? 'Change glucose readings set-up' : 'Set up glucose readings'}</span></span>${ICON.chevron}</button>`);
-  if (isAdmin() && cgmReady()) rows.push(`<button class="row" data-action="cgm-share"><span class="row-main"><span class="row-title row-link">Share the family link</span><span class="row-sub">Send it to family phones so they see his readings</span></span></button>`);
-  if (!isAdmin() && cgmUrl() && !getCgmKey()) rows.push(`<button class="row" data-action="cgm-key"><span class="row-main"><span class="row-title row-link">Enter the family key</span></span>${ICON.chevron}</button>`);
-  if (getCgmKey()) rows.push(`<button class="row" data-action="cgm-forget"><span class="row-main"><span class="row-title row-danger">Stop showing readings on this phone</span></span></button>`);
-  return rows.join('');
+  const roleName = { admin: 'Admin', family: 'Family', tv: 'View only' }[me?.role] || 'Connected';
+  return [
+    settingRow('This phone', esc(me?.name || 'Connected')),
+    settingRow('Access', `${roleName}${me?.legacy ? ' (old shared link)' : ''}`),
+    settingRow('Glucose readings', state.cgm.error && !r ? 'Not working' : r ? `${readingValue(r)} ${r.arrow} · ${readingAge(r)}` : 'Connecting…'),
+    state.cgm.error ? `<div class="row"><span class="row-main"><span class="row-sub">${esc(state.cgm.error)}</span></span></div>` : '',
+    `<button class="row" data-action="remove-this-phone"><span class="row-main"><span class="row-title row-danger">Disconnect this phone</span></span></button>`,
+  ].join('');
 }
 
 function renderSettings() {
@@ -669,27 +698,26 @@ function renderSettings() {
     settingRow('Max dose warning', s.maxDose > 0 ? `${fmt(s.maxDose)} U` : 'Off'),
     settingRow('Reduce dose when below target', s.negativeCorrection === false ? 'Off' : 'On'),
     settingRow('Round doses to', `${s.roundTo ?? 0.5} U`),
-  ].join('') : settingRow('Settings', 'Not loaded');
+  ].join('') : settingRow('Settings', getCgmKey() ? 'Not loaded' : 'Connect this phone first');
 
-  const adminRows = isAdmin()
-    ? `<button class="row" data-action="edit-settings"><span class="row-main"><span class="row-title row-link">Change dose settings</span></span>${ICON.chevron}</button>
-       <button class="row" data-action="add-family-food"><span class="row-main"><span class="row-title row-link">Add a family food</span></span>${ICON.chevron}</button>
-       <button class="row" data-action="lock"><span class="row-main"><span class="row-title row-danger">Lock admin on this device</span></span></button>`
-    : `<button class="row" data-action="unlock"><span class="row-main"><span class="row-title row-link">Unlock admin</span><span class="row-sub">Only the parent who manages his settings needs this.</span></span>${ICON.chevron}</button>`;
+  const adminRows = isAdmin() ? `
+    <button class="row" data-action="edit-settings"><span class="row-main"><span class="row-title row-link">Change dose settings</span></span>${ICON.chevron}</button>
+    <button class="row" data-action="settings-history"><span class="row-main"><span class="row-title row-link">Settings change history</span></span>${ICON.chevron}</button>
+    <button class="row" data-action="phones"><span class="row-main"><span class="row-title row-link">Phones</span><span class="row-sub">Invite, see and remove family phones</span></span>${ICON.chevron}</button>
+    <button class="row" data-action="delete-data"><span class="row-main"><span class="row-title row-danger">Delete his stored data</span></span>${ICON.chevron}</button>` : '';
 
-  const history = `https://github.com/${REPO.owner}/${REPO.repo}/commits/${REPO.branch}/settings.json`;
   el.innerHTML = `
     ${s && !isConfigured(s) ? `<div class="banner banner-warn">${ICON.warn}<div><strong>Not set up yet</strong>${isAdmin() ? 'Tap “Change dose settings” and enter the numbers from his diabetes team.' : 'Ask the admin to set his carb ratio, correction factor and target.'}</div></div>` : ''}
-    ${section('His numbers', doseRows, `${esc(loadedFrom)} Last changed ${fmtDate(s?.updatedAt)}. Only the admin can change these.`)}
-    ${section('Glucose readings', cgmRows(), cgmUrl() ? 'Readings come from his Libre or Dexcom (whichever is newest) through the family relay. Each phone needs the family link once.' : '')}
-    ${section('Admin', adminRows, isAdmin() ? 'Saving updates every family phone the next time DiaBuddy opens.' : '')}
+    ${section('His numbers', doseRows, s ? `${esc(loadedFrom)} Last changed ${fmtDate(s.updatedAt)}${s.updatedBy ? ` by ${esc(s.updatedBy)}` : ''}. Only the admin can change these.` : '')}
+    ${section('This phone', phoneRows(), 'Each phone has its own key. Removing one doesn’t affect the others.')}
+    ${adminRows ? section('Admin', adminRows, 'Changes reach every family phone the next time DiaBuddy opens.') : ''}
     ${section('How the dose is worked out', `
       <div class="row"><span class="row-main"><span class="row-title">Food dose</span><span class="row-sub">Carbs ÷ carb ratio</span></span></div>
       <div class="row"><span class="row-main"><span class="row-title">Correction</span><span class="row-sub">(Current BG − target BG) ÷ correction factor</span></span></div>
       <div class="row"><span class="row-main"><span class="row-title">Total</span><span class="row-sub">Food dose + correction, rounded to the nearest ${s?.roundTo ?? 0.5} U</span></span></div>`,
       'If insulin was given in the last 3 hours, a correction for high BG is left out so doses don’t stack.')}
     ${section('About', `
-      <a class="row" href="${history}" target="_blank" rel="noopener"><span class="row-main"><span class="row-title row-link">Settings change history</span></span>${ICON.chevron}</a>
+      <div class="row"><span class="row-main"><span class="row-title">Privacy</span><span class="row-sub">His readings, log and settings are stored in the family’s private Cloudflare account and only reach connected phones.</span></span></div>
       <div class="row"><span class="row-main"><span class="row-title">Food data</span><span class="row-sub">Family notebook · USDA FoodData Central · Open Food Facts (ODbL)</span></span></div>
       <div class="row"><span class="row-main"><span class="row-title">Version</span></span><span class="row-value">${APP_VERSION}</span></div>`,
       'DiaBuddy is a calculator, not medical advice. Always follow the plan from his diabetes team, and use your own judgement.')}
@@ -1023,7 +1051,7 @@ function openFoodDetail(food) {
     <div class="sheet-actions">
       <button class="btn btn-primary" id="detail-add">${inMeal ? 'Add more to meal' : 'Add to meal'}</button>
       ${(isAdmin() || cgmReady()) && food.source === 'off' ? '<button class="btn btn-secondary" id="detail-save">Save to family foods</button>' : ''}
-      ${food.source === 'custom' && (food.relay ? cgmReady() : isAdmin()) ? '<button class="btn btn-danger" id="detail-remove">Remove from family foods</button>' : ''}
+      ${food.source === 'custom' && food.relay && cgmReady() ? '<button class="btn btn-danger" id="detail-remove">Remove from family foods</button>' : ''}
     </div>`, {
     onMount(root) {
       const getServings = mountAmount($('#amount', root), food, 1, null, { askGrams: food.source === 'off' });
@@ -1611,41 +1639,6 @@ function doseHtml(r, { correctionOnly }) {
 
 // ---------------------------------------------------------------- Admin
 
-function openUnlock() {
-  const tokenUrl = 'https://github.com/settings/personal-access-tokens/new';
-  openSheet(`
-    ${sheetHeader('Unlock admin', 'Lets this device change the shared settings.')}
-    ${section('Make a key (once)', `
-      <div class="row"><span class="row-main"><span class="row-title">1. Open GitHub’s token page</span><span class="row-sub"><a href="${tokenUrl}" target="_blank" rel="noopener">${tokenUrl.replace('https://', '')}</a></span></span></div>
-      <div class="row"><span class="row-main"><span class="row-title">2. Repository access</span><span class="row-sub">Only select repositories → ${esc(REPO.repo)}</span></span></div>
-      <div class="row"><span class="row-main"><span class="row-title">3. Permissions</span><span class="row-sub">Contents → Read and write</span></span></div>
-      <div class="row"><span class="row-main"><span class="row-title">4. Generate, copy and paste below</span></span></div>`)}
-    <section class="section"><div class="group">
-      <div class="row field-row"><label for="tok">Token</label><input id="tok" class="wide" type="password" placeholder="github_pat_…" autocomplete="off" spellcheck="false"></div>
-    </div><p class="section-footer" id="tok-status">The token stays on this device and is only sent to GitHub.</p></section>
-    <div class="sheet-actions"><button class="btn btn-primary" id="tok-go">Unlock</button></div>`, {
-    onMount(root) {
-      const go = async () => {
-        const btn = $('#tok-go', root);
-        btn.disabled = true;
-        $('#tok-status', root).textContent = 'Checking with GitHub…';
-        try {
-          await unlock($('#tok', root).value);
-          closeSheet();
-          renderSettings();
-          renderFoods();
-          toast('Admin unlocked on this device');
-        } catch (err) {
-          $('#tok-status', root).textContent = err.message || 'Could not reach GitHub.';
-          btn.disabled = false;
-        }
-      };
-      $('#tok-go', root).addEventListener('click', go);
-      $('#tok', root).addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
-    },
-  });
-}
-
 const SETTING_FIELDS = [
   { key: 'icr', label: 'Carb ratio', unit: 'g per unit', min: 1, max: 150, required: true, hint: '1 unit covers this many grams' },
   { key: 'cf', label: 'Correction factor', unit: 'mmol/L', min: 0.5, max: 30, required: true, hint: '1 unit lowers BG by this much' },
@@ -1699,10 +1692,10 @@ async function openSettingsEditor() {
         btn.disabled = true;
         btn.textContent = 'Saving…';
         try {
-          await writeShared('settings.json', next, `Update dose settings: ${changes.join(', ')}`);
-          state.settings = next;
-          state.settingsMeta = { from: 'github', fetchedAt: Date.now() };
-          store.set('settings', { data: next, fetchedAt: Date.now() });
+          const { settings: saved } = await relayFetch(RELAY_URL, '/settings', { method: 'PUT', body: next });
+          state.settings = saved;
+          state.settingsMeta = { from: 'relay', fetchedAt: Date.now() };
+          store.set('settings', { data: saved, fetchedAt: Date.now() });
           closeSheet();
           renderSettings();
           renderSetupBanner();
@@ -1773,32 +1766,18 @@ function openFamilyFoodForm(prefill = null) {
 
 // The relay when it's set up (any family phone), otherwise the admin's GitHub file.
 async function saveFamilyFood(food) {
-  if (cgmReady()) {
-    const { food: saved } = await relayFetch(cgmUrl(), '/foods', { method: 'POST', body: { ...food, addedBy: deviceId } });
-    state.relayFoods = [...state.relayFoods.filter((f) => f.id !== saved.id), { ...saved, source: 'custom', relay: true }];
-    store.set('relay-foods', state.relayFoods);
-  } else {
-    const { data } = await readShared('data/foods-custom.json');
-    const foods = [...(data.foods || []), food];
-    await writeShared('data/foods-custom.json', { foods }, `Add family food: ${food.name}`);
-    state.githubFoods = foods.map((f) => ({ ...f, source: 'custom' }));
-  }
+  const { food: saved } = await relayFetch(RELAY_URL, '/foods', { method: 'POST', body: { ...food, addedBy: state.me?.name || deviceId } });
+  state.relayFoods = [...state.relayFoods.filter((f) => f.id !== saved.id), { ...saved, source: 'custom', relay: true }];
+  store.set('relay-foods', state.relayFoods);
   setCustomFoods();
 }
 
 async function removeFamilyFood(food, btn) {
   btn.disabled = true;
   try {
-    if (food.relay) {
-      await relayFetch(cgmUrl(), `/foods/${food.id}`, { method: 'DELETE' });
-      state.relayFoods = state.relayFoods.filter((f) => f.id !== food.id);
-      store.set('relay-foods', state.relayFoods);
-    } else {
-      const { data } = await readShared('data/foods-custom.json');
-      const foods = (data.foods || []).filter((f) => f.id !== food.id);
-      await writeShared('data/foods-custom.json', { foods }, `Remove family food: ${food.name}`);
-      state.githubFoods = foods.map((f) => ({ ...f, source: 'custom' }));
-    }
+    await relayFetch(RELAY_URL, `/foods/${encodeURIComponent(food.id)}`, { method: 'DELETE' });
+    state.relayFoods = state.relayFoods.filter((f) => f.id !== food.id);
+    store.set('relay-foods', state.relayFoods);
     setCustomFoods();
     closeSheet();
     refreshRows();
@@ -1809,122 +1788,209 @@ async function removeFamilyFood(food, btn) {
   }
 }
 
-// ---------------------------------------------------------------- Glucose readings set-up
+// ---------------------------------------------------------------- Phones & joining
 
-async function openCgmSetup() {
-  await loadSettings();
-  const key = getCgmKey();
+const isIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isStandalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+// Join with a single-use invite. On iPhone, a home-screen app has its own storage,
+// so if the link opened in Safari we offer to keep the invite for the home-screen app.
+function openJoin(code = null) {
+  const suggested = isIos() ? 'iPhone' : /Android/.test(navigator.userAgent) ? 'Android phone' : 'This device';
+  const safariFirst = code && isIos() && !isStandalone();
   openSheet(`
-    ${sheetHeader('Glucose readings', 'Connect the relay running on your Cloudflare account.')}
+    ${sheetHeader('Connect this phone', 'Uses the invite link the admin sent you.')}
+    ${safariFirst ? `<div class="banner banner-info">${ICON.info}<div><strong>Using DiaBuddy from your Home Screen?</strong>Copy the invite, add DiaBuddy to your Home Screen (Share → Add to Home Screen), open it from there and paste the invite. An invite works once.</div></div>` : ''}
     <section class="section"><div class="group">
-      <div class="row field-row"><label for="cgm-url">Relay address</label><input id="cgm-url" class="wide" inputmode="url" value="${esc(cgmUrl())}" placeholder="https://diabuddy-dexcom….workers.dev" autocomplete="off" spellcheck="false"></div>
-      <div class="row field-row"><label for="cgm-k">Family key</label><input id="cgm-k" class="wide" value="${esc(key)}" placeholder="Tap Generate" autocomplete="off" spellcheck="false"></div>
-      <button class="row" id="cgm-gen" type="button"><span class="row-main"><span class="row-title row-link">Generate a new family key</span></span></button>
-    </div><p class="section-footer" id="cgm-status">Put this same key in Cloudflare as the FAMILY_KEY secret. A new key stops old family links working.</p></section>
+      ${code ? '' : '<div class="row field-row"><label for="join-code">Invite</label><input id="join-code" class="wide" placeholder="Paste the invite link" autocomplete="off" spellcheck="false"></div>'}
+      <div class="row field-row"><label for="join-name">Name this phone</label><input id="join-name" class="wide" value="${esc(suggested)}" autocomplete="off"></div>
+    </div><p class="section-footer" id="join-status">The admin sees this name and can remove the phone later.</p></section>
     <div class="sheet-actions">
-      <button class="btn btn-secondary" id="cgm-test">Test connection</button>
-      <button class="btn btn-primary" id="cgm-save">Save</button>
+      ${safariFirst ? '<button class="btn btn-primary" id="join-copy">Copy invite</button>' : ''}
+      <button class="btn ${safariFirst ? 'btn-secondary' : 'btn-primary'}" id="join-go">${safariFirst ? 'Use it here in Safari instead' : 'Connect'}</button>
     </div>`, {
     onMount(root) {
-      const status = $('#cgm-status', root);
-      const values = () => ({ url: $('#cgm-url', root).value.trim().replace(/\/+$/, ''), key: $('#cgm-k', root).value.trim() });
-      const valid = ({ url, key }) => {
-        if (!/^https:\/\/[^\s/]+/.test(url)) return 'Enter the relay address, starting with https://';
-        if (key.length < 16) return 'Generate a family key first.';
-        return '';
-      };
-      $('#cgm-gen', root).addEventListener('click', () => {
-        $('#cgm-k', root).value = generateKey();
-        status.textContent = 'New key made. Copy it into Cloudflare as FAMILY_KEY, then test.';
+      const status = $('#join-status', root);
+      $('#join-copy', root)?.addEventListener('click', async () => {
+        try { await navigator.clipboard.writeText(inviteLink(code)); status.textContent = 'Copied. Now open DiaBuddy from your Home Screen and paste it.'; } catch { status.textContent = inviteLink(code); }
       });
-      $('#cgm-test', root).addEventListener('click', async () => {
-        const v = values();
-        const problem = valid(v);
-        if (problem) { status.textContent = problem; return; }
-        status.textContent = 'Asking his sensor…';
-        try {
-          const r = await fetchLatest(v.url, v.key);
-          status.textContent = `Working: ${readingValue(r)} mmol/L ${r.arrow}, ${readingAge(r)}.`;
-        } catch (err) {
-          status.textContent = err.message;
-        }
-      });
-      $('#cgm-save', root).addEventListener('click', async (e) => {
-        const v = values();
-        const problem = valid(v);
-        if (problem) { status.textContent = problem; return; }
+      $('#join-go', root).addEventListener('click', async (e) => {
+        const c = code || joinCodeFrom($('#join-code', root).value);
+        if (!c) { status.textContent = 'Paste the whole invite link.'; return; }
         const btn = e.currentTarget;
         btn.disabled = true;
-        btn.textContent = 'Saving…';
+        status.textContent = 'Connecting…';
         try {
-          if (v.url !== cgmUrl()) {
-            await loadSettings();
-            const next = { ...state.settings, cgmUrl: v.url };
-            await writeShared('settings.json', next, 'Set glucose relay address');
-            state.settings = next;
-            store.set('settings', { data: next, fetchedAt: Date.now() });
-          }
-          setCgmKey(v.key);
-          state.cgm = { reading: null, error: null, at: 0, loading: false };
+          const res = await fetch(`${RELAY_URL}/enroll`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: c, deviceName: $('#join-name', root).value.trim() }),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error === 'bad_invite' ? 'That invite has expired or was already used. Ask the admin for a new one.' : data.error === 'rate_limited' ? 'Too many tries. Wait a minute.' : 'Couldn’t connect. Check your signal and try again.');
+          setCgmKey(data.token);
+          state.me = data.device;
+          store.set('me', data.device);
           closeSheet();
-          renderSettings();
-          renderCgmCard();
-          refreshCgm();
-          toast('Glucose readings set up');
+          await loadSettings();
+          renderSetupBanner(); renderSettings(); renderCgmCard(); renderHome();
+          refreshCgm(); loadTodayLog(); loadRelayFoods();
+          toast(data.device.role === 'admin' ? 'Connected as admin' : 'This phone is connected');
         } catch (err) {
           status.textContent = err.message;
           btn.disabled = false;
-          btn.textContent = 'Save';
         }
       });
     },
   });
 }
 
-function openCgmKeyEntry() {
+async function removeThisPhone() {
+  if (!confirm('Disconnect this phone? It will need a new invite to see his readings again.')) return;
+  try { if (state.me?.id && !state.me.legacy) await relayFetch(RELAY_URL, `/devices/${encodeURIComponent(state.me.id)}`, { method: 'DELETE' }); } catch {}
+  forgetThisPhone();
+  renderSetupBanner(); renderSettings(); renderCgmCard(); renderHome(); refreshRows();
+  toast('This phone is disconnected');
+}
+
+const ROLE_LABEL = { admin: 'Admin', family: 'Family', tv: 'View only (TV)' };
+
+async function openPhones() {
+  openSheet(`${sheetHeader('Phones', 'Everyone who can see his readings.')}${loadingRow('Loading…')}`);
+  let data;
+  try {
+    data = await relayFetch(RELAY_URL, '/devices');
+  } catch (err) {
+    if (sheet.open) openSheet(`${sheetHeader('Phones')}<div class="banner banner-warn">${ICON.warn}<div>${esc(err.message)}</div></div>`);
+    return;
+  }
+  if (!sheet.open) return;
+  const rows = data.devices.map((d) => `
+    <div class="row">
+      <span class="row-main"><span class="row-title">${esc(d.name)}${d.current ? ' (this phone)' : ''}</span>
+        <span class="row-sub">${esc(ROLE_LABEL[d.role] || d.role)} · added ${esc(fmtDate(d.createdAt))}${d.lastSeenDay ? ` · last used ${esc(fmtDate(d.lastSeenDay))}` : ''}</span></span>
+      ${d.current ? '' : `<button class="btn btn-danger btn-compact" data-remove-device="${esc(d.id)}" data-name="${esc(d.name)}">Remove</button>`}
+    </div>`).join('');
   openSheet(`
-    ${sheetHeader('Family key', 'Lets this phone show his glucose readings.')}
-    <section class="section"><div class="group">
-      <div class="row field-row"><label for="fk">Key</label><input id="fk" class="wide" placeholder="Paste the key" autocomplete="off" spellcheck="false"></div>
-    </div><p class="section-footer" id="fk-status">Easier: open the family link the admin sent you, and it sets this up by itself.</p></section>
-    <div class="sheet-actions"><button class="btn btn-primary" id="fk-go">Connect</button></div>`, {
+    ${sheetHeader('Phones', 'Everyone who can see his readings.')}
+    ${data.legacyActive ? `<div class="banner banner-warn">${ICON.warn}<div><strong>The old shared link still works</strong>Anyone with the old family link can still connect. Once every phone below has joined with an invite, turn it off.</div></div>` : ''}
+    ${section(null, rows || '<div class="row"><span class="row-main"><span class="row-sub">No phones yet.</span></span></div>')}
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="ph-invite">Invite a phone</button>
+      ${data.legacyActive ? '<button class="btn btn-danger" id="ph-legacy">Turn off the old shared link</button>' : ''}
+    </div>`, {
     onMount(root) {
-      $('#fk-go', root).addEventListener('click', async () => {
-        const key = $('#fk', root).value.trim();
-        const status = $('#fk-status', root);
-        status.textContent = 'Checking…';
+      root.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-remove-device]');
+        if (!btn) return;
+        if (!confirm(`Remove ${btn.dataset.name}? It will stop seeing his readings straight away.`)) return;
+        btn.disabled = true;
         try {
-          await fetchLatest(cgmUrl(), key);
-          setCgmKey(key);
-          closeSheet();
-          renderSettings();
-          renderCgmCard();
-          refreshCgm();
-          toast('Readings connected');
+          await relayFetch(RELAY_URL, `/devices/${encodeURIComponent(btn.dataset.removeDevice)}`, { method: 'DELETE' });
+          toast(`${btn.dataset.name} removed`);
+          openPhones();
+        } catch (err) { btn.disabled = false; toast(err.message); }
+      });
+      $('#ph-invite', root).addEventListener('click', openInvite);
+      $('#ph-legacy', root)?.addEventListener('click', async (e) => {
+        if (!confirm('Turn off the old shared link? Phones that haven’t joined with an invite will stop working.')) return;
+        e.currentTarget.disabled = true;
+        try { await relayFetch(RELAY_URL, '/legacy-off', { method: 'POST' }); toast('Old shared link turned off'); openPhones(); } catch (err) { toast(err.message); }
+      });
+    },
+  });
+}
+
+function openInvite() {
+  openSheet(`
+    ${sheetHeader('Invite a phone', 'The link works once and expires in 24 hours.')}
+    <section class="section"><div class="group">
+      <div class="row field-row"><label for="inv-name">Who is it for?</label><input id="inv-name" class="wide" placeholder="e.g. Gran" autocomplete="off"></div>
+      <div class="row field-row"><label for="inv-role">Access</label><select id="inv-role" class="wide">
+        <option value="family" selected>Family: readings, log, foods</option>
+        <option value="tv">View only (TV)</option>
+        <option value="admin">Admin: also settings and phones</option>
+      </select></div>
+    </div><p class="section-footer" id="inv-status">Send it privately, e.g. in a direct message, not a group chat.</p></section>
+    <div class="sheet-actions"><button class="btn btn-primary" id="inv-go">Create invite link</button></div>`, {
+    onMount(root) {
+      $('#inv-go', root).addEventListener('click', async (e) => {
+        const btn = e.currentTarget;
+        const name = $('#inv-name', root).value.trim();
+        if (!name) { $('#inv-status', root).textContent = 'Say who it’s for, so you can recognise the phone later.'; return; }
+        btn.disabled = true;
+        try {
+          const { code, expiresAt } = await relayFetch(RELAY_URL, '/invites', { method: 'POST', body: { role: $('#inv-role', root).value, name } });
+          const link = inviteLink(code);
+          openSheet(`
+            ${sheetHeader(`Invite for ${esc(name)}`, `Works once, until ${esc(new Date(expiresAt).toLocaleString('en-ZA', { weekday: 'short', hour: '2-digit', minute: '2-digit' }))}.`)}
+            ${section(null, `<div class="row"><span class="row-main"><span class="row-title" style="user-select:all;-webkit-user-select:all;overflow-wrap:anywhere">${esc(link)}</span></span></div>`, 'Anyone who opens this link first gets the access you chose, so send it only to that person.')}
+            <div class="sheet-actions">
+              <button class="btn btn-primary" id="inv-share">Share</button>
+              <button class="btn btn-secondary" data-action="phones">Back to phones</button>
+            </div>`, {
+            onMount(r2) {
+              $('#inv-share', r2).addEventListener('click', async () => {
+                try {
+                  if (navigator.share) { await navigator.share({ title: 'DiaBuddy invite', text: `DiaBuddy invite for ${name}. Open it once on your phone:`, url: link }); return; }
+                } catch (err) { if (err.name === 'AbortError') return; }
+                try { await navigator.clipboard.writeText(link); toast('Invite link copied'); } catch { toast('Copy the link above'); }
+              });
+            },
+          });
+        } catch (err) {
+          btn.disabled = false;
+          $('#inv-status', root).textContent = err.message;
+        }
+      });
+    },
+  });
+}
+
+async function openSettingsHistory() {
+  openSheet(`${sheetHeader('Settings history')}${loadingRow('Loading…')}`);
+  try {
+    const { history } = await relayFetch(RELAY_URL, '/settings?history=1');
+    if (!sheet.open) return;
+    const label = { icr: 'Carb ratio', cf: 'Correction factor', targetBg: 'Target BG', hypoThreshold: 'Low below', maxDose: 'Max dose', roundTo: 'Rounding', negativeCorrection: 'Reduce below target' };
+    const rows = history.map((h) => `
+      <div class="row"><span class="row-main"><span class="row-title">${esc(fmtDate(h.at))} · ${esc(h.by)}</span>
+        <span class="row-sub">${h.changes.map((c) => `${esc(label[c.field] || c.field)}: ${esc(String(c.from ?? '–'))} → ${esc(String(c.to ?? '–'))}`).join(' · ')}</span></span></div>`).join('');
+    openSheet(`${sheetHeader('Settings history', 'Every change to his numbers, newest first.')}${section(null, rows || '<div class="row"><span class="row-main"><span class="row-sub">No changes recorded yet.</span></span></div>')}`);
+  } catch (err) {
+    if (sheet.open) openSheet(`${sheetHeader('Settings history')}<div class="banner banner-warn">${ICON.warn}<div>${esc(err.message)}</div></div>`);
+  }
+}
+
+function openDeleteData() {
+  openSheet(`
+    ${sheetHeader('Delete his stored data', 'This can’t be undone.')}
+    <section class="section"><div class="group">
+      <div class="row field-row"><label for="del-what">Delete</label><select id="del-what" class="wide">
+        <option value="glucose">Glucose readings</option>
+        <option value="events">Meal and dose log</option>
+        <option value="all">Readings, log and settings history</option>
+      </select></div>
+      <div class="row field-row"><label for="del-confirm">Type DELETE</label><input id="del-confirm" class="wide" autocomplete="off" spellcheck="false"></div>
+    </div><p class="section-footer" id="del-status">His dose settings, phones and family foods are kept.</p></section>
+    <div class="sheet-actions"><button class="btn btn-danger" id="del-go">Delete</button></div>`, {
+    onMount(root) {
+      $('#del-go', root).addEventListener('click', async (e) => {
+        const status = $('#del-status', root);
+        if ($('#del-confirm', root).value.trim() !== 'DELETE') { status.textContent = 'Type DELETE to confirm.'; return; }
+        e.currentTarget.disabled = true;
+        try {
+          const { deleted, remaining } = await relayFetch(RELAY_URL, '/erase', { method: 'POST', body: { what: $('#del-what', root).value } });
+          status.textContent = remaining ? `Deleted ${deleted}. ${remaining} left; run it again tomorrow (daily limit).` : `Deleted ${deleted} records.`;
+          state.todayLog = [];
+          renderHome();
         } catch (err) {
           status.textContent = err.message;
+          e.currentTarget.disabled = false;
         }
       });
     },
   });
-}
-
-async function shareFamilyLink() {
-  const link = familyLink(getCgmKey());
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: 'DiaBuddy', text: 'DiaBuddy with his glucose readings. Open this once on your phone:', url: link });
-      return;
-    }
-  } catch (err) {
-    if (err.name === 'AbortError') return;
-  }
-  try {
-    await navigator.clipboard.writeText(link);
-    toast('Family link copied');
-  } catch {
-    openSheet(`${sheetHeader('Family link')}<section class="section"><div class="group"><div class="row"><span class="row-main"><span class="row-title" style="user-select:all;-webkit-user-select:all">${esc(link)}</span></span></div></div><p class="section-footer">Copy this and send it to family phones.</p></section>`);
-  }
 }
 
 // ---------------------------------------------------------------- Tabs & events
@@ -1957,22 +2023,15 @@ const actions = {
   calculate: () => openDose(),
   correction: () => openDose({ correctionOnly: true }),
   'clear-meal': () => { setTrayExpanded(false); clearMeal(); },
-  unlock: openUnlock,
-  lock: () => { lock(); renderSettings(); renderFoods(); toast('Admin locked on this device'); },
   'edit-settings': openSettingsEditor,
+  'settings-history': openSettingsHistory,
+  phones: openPhones,
+  'delete-data': openDeleteData,
+  'remove-this-phone': removeThisPhone,
+  join: () => openJoin(),
   'add-family-food': () => openFamilyFoodForm(),
   'photo-label': openPhotoLabel,
   'cgm-refresh': refreshCgm,
-  'cgm-setup': openCgmSetup,
-  'cgm-key': openCgmKeyEntry,
-  'cgm-share': shareFamilyLink,
-  'cgm-forget': () => {
-    setCgmKey('');
-    state.cgm = { reading: null, error: null, at: 0, loading: false };
-    renderCgmCard();
-    renderSettings();
-    toast('Readings removed from this phone');
-  },
 };
 
 function initEvents() {
@@ -2004,6 +2063,7 @@ function initEvents() {
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;
     renderGreeting();
+    await loadMe();
     if (await loadSettings()) { renderSettings(); renderSetupBanner(); }
     refreshCgm();
     loadTodayLog();
@@ -2014,7 +2074,7 @@ function initEvents() {
 // ---------------------------------------------------------------- boot
 
 async function boot() {
-  const linked = consumeLinkKey();
+  const joinCode = consumeJoinCode();
   renderGreeting();
   restoreMeal();
   initEvents();
@@ -2022,6 +2082,7 @@ async function boot() {
   initSheet();
   renderTray();
   renderHome();
+  await loadMe();
   await Promise.all([loadSettings(), loadAllFoods()]);
   renderSetupBanner();
   renderHome();
@@ -2032,15 +2093,11 @@ async function boot() {
   loadTodayLog();
   loadRelayFoods();
   addEventListener('online', () => loadTodayLog());
-  if (linked) toast(cgmUrl() ? 'His glucose readings are on this phone now' : 'Family key saved');
-  // The family link opened in a tab where DiaBuddy is already running.
+  if (joinCode) openJoin(joinCode);
+  // The invite link opened in a tab where DiaBuddy is already running.
   addEventListener('hashchange', () => {
-    if (!consumeLinkKey()) return;
-    state.cgm = { reading: null, error: null, at: 0, loading: false };
-    renderCgmCard();
-    renderSettings();
-    refreshCgm();
-    toast('His glucose readings are on this phone now');
+    const code = consumeJoinCode();
+    if (code) openJoin(code);
   });
   // Libre updates every minute and Dexcom every 5; check every 2.5 minutes.
   setInterval(() => { if (document.visibilityState === 'visible') refreshCgm(); }, 150000);

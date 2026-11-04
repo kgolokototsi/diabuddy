@@ -1,8 +1,8 @@
-// Live glucose readings (Dexcom or Libre) via the DiaBuddy relay (worker/worker.js).
-// The relay URL is shared in settings.json; the family key is kept per device
-// and arrives either pasted or through a family link ending in #cgm=<key>.
+// Talks to the DiaBuddy relay (worker/worker.js): glucose readings, the log, foods,
+// settings and phone access. Each phone has its own key (from a single-use invite);
+// it's kept in this phone's storage and sent as X-DiaBuddy-Key.
 
-const KEY = 'diabuddy.cgmKey';
+const KEY = 'diabuddy.phoneKey';
 export const FRESH_MINUTES = 10;
 
 export function getCgmKey() {
@@ -13,26 +13,28 @@ export function setCgmKey(key) {
   try { key ? localStorage.setItem(KEY, key.trim()) : localStorage.removeItem(KEY); } catch {}
 }
 
-// Store a key from a family link and strip it from the address bar.
-export function consumeLinkKey() {
-  const m = /(?:^#|&)cgm=([A-Za-z0-9_-]{16,})/.exec(location.hash);
-  if (!m) return false;
-  setCgmKey(m[1]);
+// An invite link ends in #join=<code>. Take the code and strip it from the address bar
+// (and from history) straight away, so it isn't left lying around.
+export function consumeJoinCode() {
+  const m = /(?:^#|&)join=([A-Za-z0-9_-]{16,100})/.exec(location.hash);
+  if (!m) return null;
   history.replaceState(null, '', location.pathname + location.search);
-  return true;
+  return m[1];
 }
 
-export function generateKey() {
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+// Accepts a pasted invite link or just the code.
+export function joinCodeFrom(text) {
+  const m = /(?:join=)?([A-Za-z0-9_-]{16,100})$/.exec(String(text || '').trim());
+  return m ? m[1] : null;
 }
 
-export function familyLink(key) {
-  return `${location.origin}${location.pathname}#cgm=${key}`;
-}
+export const inviteLink = (code) => `${location.origin}/#join=${code}`;
 
 const MESSAGES = {
-  bad_key: 'The family key doesn’t match the relay. Ask the admin for a new family link.',
+  bad_key: 'This phone isn’t connected any more. Ask the admin for a new invite link.',
+  bad_invite: 'That invite has expired or was already used. Ask the admin for a new one.',
+  rate_limited: 'Too many tries. Wait a minute and try again.',
+  admin_only: 'Only the admin can do that.',
   dexcom_login_failed: 'Dexcom rejected the login saved in the relay. The admin needs to update it.',
   dexcom_unavailable: 'Dexcom isn’t answering right now.',
   dexcom_no_readings: 'Dexcom has no readings from the last 24 hours.',
@@ -57,8 +59,8 @@ const MESSAGES = {
 };
 
 export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } = {}) {
-  if (!url) throw new Error('Glucose readings are not set up.');
-  if (!key) throw new Error('This device needs the family key.');
+  if (url == null) throw new Error('Glucose readings are not set up.');
+  if (!key) throw new Error('This phone isn’t connected yet. Ask the admin for an invite link.');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -69,11 +71,13 @@ export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } =
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(MESSAGES[body.error] || `The relay returned ${res.status}.`);
-    const reading = body.readings?.[0];
+    const raw = body.readings?.[0];
+    if (!raw) throw new Error(MESSAGES.no_readings);
+    const reading = cleanReading(raw);
     if (!reading) throw new Error(MESSAGES.no_readings);
-    // Recompute age on this device so a cached response can't look fresher than it is.
-    reading.ageMinutes = Math.max(0, Math.round((Date.now() - Date.parse(reading.time)) / 60000));
-    reading.history = (body.history || []).filter((p) => Number.isFinite(p.mmol) && Date.parse(p.time));
+    reading.history = (Array.isArray(body.history) ? body.history : [])
+      .map((p) => ({ mmol: Number(p?.mmol), time: String(p?.time || '') }))
+      .filter((p) => Number.isFinite(p.mmol) && Date.parse(p.time));
     return reading;
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('No answer from his sensor. Check the connection.');
@@ -87,7 +91,7 @@ export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } =
 // Calls to the relay's meal & dose log (/events). Errors carry the HTTP status so
 // callers can tell "offline, try later" (no status) from "rejected" (4xx).
 export async function relayFetch(url, path, { method = 'GET', body, key = getCgmKey(), timeoutMs = 8000 } = {}) {
-  if (!url || !key) throw new Error('Glucose readings are not set up.');
+  if (url == null || !key) throw new Error('This phone isn’t connected yet. Ask the admin for an invite link.');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
@@ -104,6 +108,34 @@ export async function relayFetch(url, path, { method = 'GET', body, key = getCgm
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Readings are shown on screen and can fill in a dose, so only known values get through:
+// numbers stay numbers and the trend comes from a fixed list, whatever the relay sends.
+const TRENDS = {
+  DoubleUp: ['⇈', 'rising fast', true], SingleUp: ['↑', 'rising', false], FortyFiveUp: ['↗', 'rising slowly', false],
+  Flat: ['→', 'steady', false], FortyFiveDown: ['↘', 'falling slowly', false], SingleDown: ['↓', 'falling', false],
+  DoubleDown: ['⇊', 'falling fast', true],
+};
+function cleanReading(r) {
+  const mmol = Number(r?.mmol);
+  const time = Date.parse(r?.time);
+  if (!Number.isFinite(mmol) || !Number.isFinite(time)) return null;
+  const [arrow, trendText, fast] = TRENDS[r.trend] || ['', 'no trend', false];
+  return {
+    source: r.source === 'libre' ? 'libre' : 'dexcom',
+    mmol,
+    mgdl: Number(r.mgdl) || Math.round(mmol * 18.0182),
+    low: r.low === true,
+    high: r.high === true,
+    trend: TRENDS[r.trend] ? r.trend : null,
+    arrow,
+    trendText,
+    fast,
+    time: new Date(time).toISOString(),
+    // Recompute age on this device so a cached response can't look fresher than it is.
+    ageMinutes: Math.max(0, Math.round((Date.now() - time) / 60000)),
+  };
 }
 
 // Whether a reading may fill the BG field by itself.

@@ -21,6 +21,8 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { readLabel } from './label.js';
+import { authenticate, can, createInvite, enroll, listDevices, removeDevice, turnOffLegacy, legacyActive, ROLES, sha256Hex } from './auth.js';
+import { readSettings, settingsHistory, writeSettings } from './settings.js';
 
 const MGDL_PER_MMOL = 18.0182;
 
@@ -113,10 +115,6 @@ let libre = null; // { base, token, accountId, expires, patientId }
 // LibreLinkUp trend arrows: 1 falling fast … 5 rising fast.
 const LIBRE_TRENDS = [null, 'DoubleDown', 'FortyFiveDown', 'Flat', 'FortyFiveUp', 'DoubleUp'];
 
-async function sha256Hex(text) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
 
 async function libreRequest(base, path, { method = 'GET', body, token, accountId } = {}, retried = false) {
   const headers = {
@@ -232,14 +230,6 @@ function toReading({ source, mgdl, time, trend }, now = Date.now()) {
   };
 }
 
-// Constant-time comparison so the key can't be guessed byte by byte from timing.
-function safeEqual(a, b) {
-  const x = new TextEncoder().encode(String(a));
-  const y = new TextEncoder().encode(String(b));
-  let diff = x.length ^ y.length;
-  for (let i = 0; i < Math.max(x.length, y.length); i++) diff |= (x[i] ?? 0) ^ (y[i] ?? 0);
-  return diff === 0;
-}
 
 function corsHeaders(env, request) {
   const origin = request.headers.get('Origin') || '';
@@ -247,17 +237,25 @@ function corsHeaders(env, request) {
   const allowed = [env.ALLOWED_ORIGIN || 'https://kgolokototsi.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765', 'file://', 'null'];
   return {
     'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'X-DiaBuddy-Key, Content-Type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
 }
 
+// Every API response: no caching, no sniffing, no referrer, HTTPS only.
+const SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'Strict-Transport-Security': 'max-age=31536000',
+};
+
 function json(body, status, headers) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...headers, 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: { ...headers, ...SECURITY_HEADERS, 'Content-Type': 'application/json' },
   });
 }
 
@@ -507,46 +505,164 @@ async function handleFoods(request, env, url, cors, canWrite) {
   return json({ error: 'not_found' }, 404, cors);
 }
 
+// ---------------------------------------------------------------- data deletion (POPIA)
+
+// Deletes stored readings and/or log entries. KV allows 1,000 deletes a day on the free
+// plan, so a large purge may need running again; the reply says how many are left.
+async function purge(env, what) {
+  const prefixes = { glucose: ['glucose:'], events: ['event:'], all: ['glucose:', 'event:', 'settings-history:', 'scans:'] }[what];
+  if (!prefixes) return null;
+  let deleted = 0;
+  let remaining = 0;
+  for (const prefix of prefixes) {
+    let cursor;
+    do {
+      const page = await env.LOG.list({ prefix, cursor });
+      for (const k of page.keys) {
+        if (deleted < 900) { await env.LOG.delete(k.name); deleted++; } else remaining++;
+      }
+      cursor = page.list_complete ? null : page.cursor;
+    } while (cursor);
+  }
+  return { deleted, remaining };
+}
+
+// ---------------------------------------------------------------- rate limits
+
+// Cloudflare's rate-limit bindings (wrangler.toml). Limits are per location and
+// approximate, which is enough to stop scripted abuse. Missing in tests: no limit.
+async function limited(binding, key) {
+  if (!binding) return false;
+  try {
+    const { success } = await binding.limit({ key });
+    return !success;
+  } catch {
+    return false;
+  }
+}
+
+const ipTag = async (request) => (await sha256Hex(request.headers.get('CF-Connecting-IP') || 'unknown')).slice(0, 10);
+
 // ---------------------------------------------------------------- entry point
 
+const API_PATHS = ['/latest', '/events', '/foods', '/scan-label', '/settings', '/me', '/enroll', '/invites', '/devices', '/erase', '/legacy-off'];
+const isApi = (path) => API_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
+
+async function readJson(request, maxChars = 8000) {
+  const text = await request.text();
+  if (text.length > maxChars) return { tooLarge: true };
+  try { return { body: JSON.parse(text) }; } catch { return { bad: true }; }
+}
+
+async function latest(env, cors) {
+  if (!setUpSources(env).length) return json({ error: 'not_configured' }, 500, cors);
+  const { readings, status } = await readSensors(env);
+  if (!readings.length) {
+    const first = Object.entries(status)[0];
+    return json({ error: `${first[0]}_${first[1]}`, sources: status }, 502, cors);
+  }
+  const now = Date.now();
+  // The newest sensor's readings from the last hour, oldest first: what the sensor
+  // gave us now plus what the scheduled job logged. Points under 30 s apart are one reading.
+  const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source, now))]
+    .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 60 * 60000)
+    .sort((a, b) => a.time - b.time)
+    .filter((p, i, all) => i === 0 || p.time - all[i - 1].time >= 30000);
+  const history = points.map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
+  return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history, sources: status }, 200, cors);
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const cors = corsHeaders(env, request);
-    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: { ...cors, ...SECURITY_HEADERS } });
 
     const url = new URL(request.url);
-    const isEvents = url.pathname === '/events' || url.pathname.startsWith('/events/');
-    const isFoods = url.pathname === '/foods' || url.pathname.startsWith('/foods/');
-    const isScan = url.pathname === '/scan-label' && request.method === 'POST';
-    if (!(url.pathname === '/latest' && request.method === 'GET') && !isEvents && !isFoods && !isScan) return json({ error: 'not_found' }, 404, cors);
+    const path = url.pathname;
+    const method = request.method;
+    // Anything that isn't the API is the app itself (static files, served before this code runs).
+    if (!isApi(path)) return env.ASSETS ? env.ASSETS.fetch(request) : json({ error: 'not_found' }, 404, cors);
 
-    const keys = [env.FAMILY_KEY, env.TV_KEY].filter(Boolean);
-    if (!keys.length || !setUpSources(env).length) return json({ error: 'not_configured' }, 500, cors);
-    const given = request.headers.get('X-DiaBuddy-Key') || '';
-    // Check every key (no early exit) so timing doesn't reveal which one matched.
-    const matches = keys.map((k) => safeEqual(given, k));
-    if (!matches.includes(true)) return json({ error: 'bad_key' }, 401, cors);
-
-    // Only the family key may add or remove log entries, foods or scan photos; a TV key can read.
-    const isFamily = Boolean(env.FAMILY_KEY) && safeEqual(given, env.FAMILY_KEY);
-    if (isEvents) return handleEvents(request, env, url, cors, isFamily);
-    if (isFoods) return handleFoods(request, env, url, cors, isFamily);
-    if (isScan) return isFamily ? handleScan(request, env, cors) : json({ error: 'read_only_key' }, 403, cors);
-
-    const { readings, status } = await readSensors(env);
-    if (!readings.length) {
-      const first = Object.entries(status)[0];
-      return json({ error: `${first[0]}_${first[1]}`, sources: status }, 502, cors);
+    // Joining with an invite is the only call that doesn't need a phone key.
+    if (path === '/enroll' && method === 'POST') {
+      if (!env.LOG) return json({ error: 'log_unavailable' }, 503, cors);
+      if (await limited(env.RL_ENROLL, await ipTag(request))) return json({ error: 'rate_limited' }, 429, cors);
+      const { body, bad, tooLarge } = await readJson(request, 1000);
+      if (bad || tooLarge) return json({ error: 'bad_request' }, 400, cors);
+      const result = await enroll(env, body.code, body.deviceName);
+      if (!result) {
+        console.warn('enroll failed', await ipTag(request));
+        return json({ error: 'bad_invite' }, 400, cors);
+      }
+      const { token, device } = result;
+      return json({ token, device: { id: device.id, name: device.name, role: device.role } }, 201, cors);
     }
-    const now = Date.now();
-    // The newest sensor's readings from the last hour, oldest first: what the sensor
-    // gave us now plus what the scheduled job logged. Points under 30 s apart are one reading.
-    const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source, now))]
-      .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 60 * 60000)
-      .sort((a, b) => a.time - b.time)
-      .filter((p, i, all) => i === 0 || p.time - all[i - 1].time >= 30000);
-    const history = points.map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
-    return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history, sources: status }, 200, cors);
+
+    const device = await authenticate(request, env, ctx);
+    if (!device) {
+      console.warn('auth failed', method, path, await ipTag(request));
+      return json({ error: 'bad_key' }, 401, cors);
+    }
+    if (await limited(env.RL_API, device.id)) return json({ error: 'rate_limited' }, 429, cors);
+    const denied = () => json({ error: 'read_only_key' }, 403, cors);
+    const adminOnly = () => json({ error: 'admin_only' }, 403, cors);
+
+    if (path === '/me' && method === 'GET') {
+      return json({ device: { id: device.id, name: device.name, role: device.role, legacy: Boolean(device.legacy) } }, 200, cors);
+    }
+    if (path === '/latest' && method === 'GET') return latest(env, cors);
+    if (path === '/events' || path.startsWith('/events/')) return handleEvents(request, env, url, cors, can(device, 'log'));
+    if (path === '/foods' || path.startsWith('/foods/')) return handleFoods(request, env, url, cors, can(device, 'foods'));
+    if (path === '/scan-label' && method === 'POST') {
+      if (!can(device, 'scan')) return denied();
+      if (await limited(env.RL_SCAN, device.id)) return json({ error: 'scan_limit' }, 429, cors);
+      return handleScan(request, env, cors);
+    }
+
+    if (!env.LOG) return json({ error: 'log_unavailable' }, 503, cors);
+
+    if (path === '/settings' && method === 'GET') {
+      if (url.searchParams.get('history')) return json({ history: await settingsHistory(env) }, 200, cors);
+      return json({ settings: await readSettings(env) }, 200, cors);
+    }
+    if (path === '/settings' && method === 'PUT') {
+      if (!can(device, 'admin')) return adminOnly();
+      const { body, bad, tooLarge } = await readJson(request);
+      if (bad || tooLarge) return json({ error: 'bad_request' }, 400, cors);
+      const result = await writeSettings(env, body, device);
+      return result.error ? json({ error: result.error }, 400, cors) : json(result, 200, cors);
+    }
+
+    // A phone may always remove itself; removing others is for the admin.
+    if (path.startsWith('/devices/') && method === 'DELETE') {
+      const id = path.split('/')[2] || '';
+      if (id !== device.id && !can(device, 'admin')) return adminOnly();
+      if (!/^dev-[a-z0-9]{3,20}$/.test(id)) return json({ error: 'bad_id' }, 400, cors);
+      return (await removeDevice(env, id)) ? json({ removed: id }, 200, cors) : json({ error: 'not_found' }, 404, cors);
+    }
+
+    if (!can(device, 'admin')) return adminOnly();
+
+    if (path === '/devices' && method === 'GET') {
+      const devices = (await listDevices(env)).map(({ hash, ...d }) => ({ ...d, current: hash === device.hash }));
+      return json({ devices, legacyActive: await legacyActive(env) }, 200, cors);
+    }
+    if (path === '/invites' && method === 'POST') {
+      const { body, bad } = await readJson(request, 1000);
+      if (bad || !ROLES.includes(body.role)) return json({ error: 'bad_request' }, 400, cors);
+      const name = typeof body.name === 'string' ? body.name.trim().slice(0, 40) : '';
+      return json(await createInvite(env, { role: body.role, name, by: device.name }), 201, cors);
+    }
+    if (path === '/legacy-off' && method === 'POST') {
+      await turnOffLegacy(env);
+      return json({ legacyActive: false }, 200, cors);
+    }
+    if (path === '/erase' && method === 'POST') {
+      const { body, bad } = await readJson(request, 200);
+      const result = bad ? null : await purge(env, body.what);
+      return result ? json(result, 200, cors) : json({ error: 'bad_request' }, 400, cors);
+    }
+    return json({ error: 'not_found' }, 404, cors);
   },
 
   // Cron trigger (wrangler.toml): log each new reading so we have every minute.

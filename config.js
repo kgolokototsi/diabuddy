@@ -1,3 +1,4 @@
-// Where the shared settings live. Admin saves commit to this repo.
-export const REPO = { owner: 'kgolokototsi', repo: 'diabuddy', branch: 'main' };
-export const APP_VERSION = '1.0.0';
+// The app and its relay are served from the same Cloudflare Worker, so API calls
+// are same-origin ('' = this site). Nothing in here is secret.
+export const RELAY_URL = '';
+export const APP_VERSION = '2.0.0';

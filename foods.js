@@ -1,7 +1,6 @@
 // Food database: notebook + USDA (data/foods.json), family additions (data/foods-custom.json),
 // and South African packaged products from Open Food Facts.
 
-import { readShared } from './admin.js';
 
 export const CATEGORIES = [
   'Breakfast', 'Bread & bakery', 'Grains & starches', 'Fruit', 'Vegetables', 'Dairy',
@@ -20,7 +19,7 @@ export async function loadFoods() {
   const base = await fetch('./data/foods.json').then((r) => r.json());
   let custom = [];
   try {
-    custom = (await readShared('data/foods-custom.json')).data.foods || [];
+    custom = (await fetch('./data/foods-custom.json', { cache: 'no-store' }).then((r) => r.json())).foods || [];
   } catch {}
   return { base: base.foods, custom };
 }

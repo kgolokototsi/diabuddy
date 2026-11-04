@@ -6,6 +6,34 @@ compatibility_date = "2026-10-01"
 DEXCOM_REGION = "ous"
 ALLOWED_ORIGIN = "https://kgolokototsi.github.io"
 
+# The app itself, built by scripts/build-site.mjs. Files are served directly;
+# anything that isn't a file (the API) reaches worker.js.
+[assets]
+directory = "../dist"
+binding = "ASSETS"
+
+# Rate limits (per Cloudflare location, approximate). Periods must be 10 or 60 seconds.
+[[ratelimits]]
+name = "RL_API"
+namespace_id = "1001"
+  [ratelimits.simple]
+  limit = 120
+  period = 60
+
+[[ratelimits]]
+name = "RL_ENROLL"
+namespace_id = "1002"
+  [ratelimits.simple]
+  limit = 5
+  period = 60
+
+[[ratelimits]]
+name = "RL_SCAN"
+namespace_id = "1003"
+  [ratelimits.simple]
+  limit = 3
+  period = 60
+
 # Minute-by-minute log of his readings (the sensors only hand out the newest one).
 [[kv_namespaces]]
 binding = "LOG"
@@ -16,5 +44,6 @@ id = "b2fcfbd3b3c14f449cb34f028cae1b7d"
 crons = ["*/2 * * * *"]
 
 # Secrets – set these with `npx wrangler secret put <NAME>` or in the dashboard:
-#   FAMILY_KEY, and for each sensor he uses:
+#   Phones join with invites (no secret needed). FAMILY_KEY / TV_KEY are the old shared
+#   keys, accepted until the admin turns them off. For each sensor he uses:
 #   DEXCOM_USERNAME + DEXCOM_PASSWORD, LIBRE_EMAIL + LIBRE_PASSWORD (a LibreLinkUp follower)
