@@ -256,6 +256,58 @@ function json(body, status, headers) {
   });
 }
 
+// ---------------------------------------------------------------- reading + minute log
+
+function setUpSources(env) {
+  const sources = [];
+  if (env.DEXCOM_USERNAME && env.DEXCOM_PASSWORD) sources.push(['dexcom', dexcomLatest]);
+  if (env.LIBRE_EMAIL && env.LIBRE_PASSWORD) sources.push(['libre', libreLatest]);
+  return sources;
+}
+
+// Ask every set-up sensor at once; newest reading first.
+async function readSensors(env) {
+  const sources = setUpSources(env);
+  const results = await Promise.allSettled(sources.map(([, read]) => read(env)));
+  const status = {};
+  const readings = [];
+  results.forEach((r, i) => {
+    const name = sources[i][0];
+    if (r.status === 'fulfilled' && Number.isFinite(r.value.mgdl) && Number.isFinite(r.value.time)) {
+      status[name] = 'ok';
+      readings.push(r.value);
+    } else {
+      status[name] = r.reason?.code || 'unavailable';
+    }
+  });
+  readings.sort((a, b) => b.time - a.time);
+  return { readings, status };
+}
+
+// The sensors only hand out their newest reading (Libre's history is every 15 minutes),
+// so a scheduled job stores each new one in KV. Keeps two hours; one write per new reading.
+const LOG_KEY = 'log';
+const LOG_KEEP_MS = 2 * 60 * 60000;
+
+async function recordReadings(env, readings, now = Date.now()) {
+  if (!env.LOG || !readings.length) return;
+  const log = (await env.LOG.get(LOG_KEY, 'json')) || [];
+  const known = new Set(log.map((p) => `${p.source}|${p.time}`));
+  const fresh = readings.filter((r) => !known.has(`${r.source}|${r.time}`)).map(({ source, mgdl, time }) => ({ source, mgdl, time }));
+  if (!fresh.length) return;
+  const kept = [...log, ...fresh].filter((p) => now - p.time <= LOG_KEEP_MS).sort((a, b) => a.time - b.time);
+  await env.LOG.put(LOG_KEY, JSON.stringify(kept));
+}
+
+async function loggedPoints(env, source) {
+  if (!env.LOG) return [];
+  try {
+    return ((await env.LOG.get(LOG_KEY, 'json')) || []).filter((p) => p.source === source);
+  } catch {
+    return [];
+  }
+}
+
 export default {
   async fetch(request, env) {
     const cors = corsHeaders(env, request);
@@ -264,40 +316,30 @@ export default {
     const url = new URL(request.url);
     if (url.pathname !== '/latest' || request.method !== 'GET') return json({ error: 'not_found' }, 404, cors);
 
-    const sources = [];
-    if (env.DEXCOM_USERNAME && env.DEXCOM_PASSWORD) sources.push(['dexcom', dexcomLatest]);
-    if (env.LIBRE_EMAIL && env.LIBRE_PASSWORD) sources.push(['libre', libreLatest]);
     const keys = [env.FAMILY_KEY, env.TV_KEY].filter(Boolean);
-    if (!keys.length || !sources.length) return json({ error: 'not_configured' }, 500, cors);
+    if (!keys.length || !setUpSources(env).length) return json({ error: 'not_configured' }, 500, cors);
     const given = request.headers.get('X-DiaBuddy-Key') || '';
     // Check every key (no early exit) so timing doesn't reveal which one matched.
     if (!keys.map((k) => safeEqual(given, k)).includes(true)) return json({ error: 'bad_key' }, 401, cors);
 
-    // Ask every set-up sensor at once and use the newest reading.
-    const results = await Promise.allSettled(sources.map(([, read]) => read(env)));
-    const status = {};
-    const readings = [];
-    results.forEach((r, i) => {
-      const name = sources[i][0];
-      if (r.status === 'fulfilled' && Number.isFinite(r.value.mgdl) && Number.isFinite(r.value.time)) {
-        status[name] = 'ok';
-        readings.push(r.value);
-      } else {
-        status[name] = r.reason?.code || 'unavailable';
-      }
-    });
+    const { readings, status } = await readSensors(env);
     if (!readings.length) {
       const first = Object.entries(status)[0];
       return json({ error: `${first[0]}_${first[1]}`, sources: status }, 502, cors);
     }
     const now = Date.now();
-    readings.sort((a, b) => b.time - a.time);
-    // The newest sensor's readings from the last hour, oldest first.
-    const history = (readings[0].history || [])
+    // The newest sensor's readings from the last hour, oldest first: what the sensor
+    // gave us now plus what the scheduled job logged. Points under 30 s apart are one reading.
+    const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source))]
       .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 60 * 60000)
       .sort((a, b) => a.time - b.time)
-      .filter((p, i, all) => i === 0 || p.time !== all[i - 1].time)
-      .map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
+      .filter((p, i, all) => i === 0 || p.time - all[i - 1].time >= 30000);
+    const history = points.map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
     return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history, sources: status }, 200, cors);
+  },
+
+  // Cron trigger (wrangler.toml): log each new reading so the chart has every minute.
+  async scheduled(_event, env, ctx) {
+    ctx.waitUntil(readSensors(env).then(({ readings }) => recordReadings(env, readings)).catch(() => {}));
   },
 };

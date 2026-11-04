@@ -6,6 +6,15 @@ compatibility_date = "2026-10-01"
 DEXCOM_REGION = "ous"
 ALLOWED_ORIGIN = "https://kgolokototsi.github.io"
 
+# Minute-by-minute log of his readings (the sensors only hand out the newest one).
+[[kv_namespaces]]
+binding = "LOG"
+id = "b2fcfbd3b3c14f449cb34f028cae1b7d"
+
+# Every 2 minutes: ~720 KV writes a day, inside the free plan's 1,000.
+[triggers]
+crons = ["*/2 * * * *"]
+
 # Secrets – set these with `npx wrangler secret put <NAME>` or in the dashboard:
 #   FAMILY_KEY, and for each sensor he uses:
 #   DEXCOM_USERNAME + DEXCOM_PASSWORD, LIBRE_EMAIL + LIBRE_PASSWORD (a LibreLinkUp follower)

@@ -99,6 +99,7 @@ How the readings are used:
    | Secret | `DEXCOM_USERNAME` | his Dexcom username or email, the one his Dexcom app signs in with |
    | Secret | `DEXCOM_PASSWORD` | that account's password |
    | Secret | `FAMILY_KEY` | the key from step 2 |
+   | Secret | `TV_KEY` | optional: a separate key for the home-screen TV app, revocable without touching family phones |
 
 7. Copy the Worker's address, which looks like `https://diabuddy-dexcom.<your-name>.workers.dev`.
 8. **DiaBuddy:** paste that address into **Relay address**, tap **Test connection** (it should show his current reading), then tap **Save**.

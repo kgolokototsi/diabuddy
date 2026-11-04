@@ -193,3 +193,60 @@ test('CORS preflight is answered', async () => {
   assert.equal(res.status, 204);
   assert.match(res.headers.get('Access-Control-Allow-Headers'), /X-DiaBuddy-Key/);
 });
+
+// In-memory stand-in for a Workers KV namespace.
+function memoryKv() {
+  const data = new Map();
+  let writes = 0;
+  return {
+    async get(key, type) { const v = data.get(key); return v == null ? null : type === 'json' ? JSON.parse(v) : v; },
+    async put(key, value) { writes++; data.set(key, value); },
+    get writes() { return writes; },
+  };
+}
+const runScheduled = async (w, env) => {
+  const jobs = [];
+  await w.scheduled({}, env, { waitUntil: (p) => jobs.push(p) });
+  await Promise.all(jobs);
+};
+
+test('scheduled job logs each new reading once, and /latest returns them as minute history', async () => {
+  const w = await load();
+  const LOG = memoryKv();
+  const env = { ...libreEnv, LOG };
+  const start = Date.now();
+  for (let i = 10; i >= 0; i--) {
+    libre.measurement = { ValueInMgPerDl: 180 - i * 4, TrendArrow: 4, FactoryTimestamp: lluTime(start - i * 60000) };
+    await runScheduled(w, env);
+    await runScheduled(w, env); // same reading again: no extra write
+  }
+  assert.equal(LOG.writes, 11);
+  const body = await (await get(w, env)).json();
+  assert.ok(body.history.length >= 11, `got ${body.history.length} points`);
+  const times = body.history.map((p) => Date.parse(p.time));
+  assert.deepEqual(times, [...times].sort((a, b) => a - b));
+  assert.equal(body.history.at(-1).mmol, 10);
+});
+
+test('log keeps two hours and only the newest sensor shows in history', async () => {
+  const w = await load();
+  const LOG = memoryKv();
+  const now = Date.now();
+  await LOG.put('log', JSON.stringify([
+    { source: 'libre', mgdl: 100, time: now - 3 * 3600e3 },
+    { source: 'dexcom', mgdl: 200, time: now - 5 * 60000 },
+    { source: 'libre', mgdl: 120, time: now - 5 * 60000 },
+  ]));
+  const env = { ...libreEnv, LOG };
+  await runScheduled(w, env);
+  const log = await LOG.get('log', 'json');
+  assert.ok(!log.some((p) => p.mgdl === 100), 'old entry dropped');
+  const body = await (await get(w, env)).json();
+  assert.ok(body.history.every((p) => p.mmol < 11), 'no Dexcom points in a Libre history');
+});
+
+test('relay still works with no KV bound', async () => {
+  const w = await load();
+  await runScheduled(w, libreEnv);
+  assert.equal((await get(w, libreEnv)).status, 200);
+});

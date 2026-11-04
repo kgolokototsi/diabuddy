@@ -349,10 +349,15 @@ function trendChart(r, now = Date.now()) {
     .map((s) => `<polyline points="${s.map((p) => `${x(p.t).toFixed(1)},${y(p.mmol).toFixed(1)}`).join(' ')}" />`).join('');
   const dots = points.map((p, i) => `<circle cx="${x(p.t).toFixed(1)}" cy="${y(p.mmol).toFixed(1)}" r="${i === points.length - 1 ? 4.5 : 3}" class="${i === points.length - 1 ? 'trend-last' : ''}"><title>${fmt(p.mmol)} at ${clockTime(p.time)}</title></circle>`).join('');
 
-  const prev = points.length > 1 ? points.at(-2) : null;
   const cur = points.at(-1);
-  const change = prev
-    ? `${cur.mmol - prev.mmol > 0 ? '+' : cur.mmol - prev.mmol < 0 ? '−' : '±'}${fmt(Math.abs(cur.mmol - prev.mmol))} since ${clockTime(prev.time)}`
+  const signed = (d) => `${d > 0 ? '+' : d < 0 ? '−' : '±'}${fmt(Math.abs(d))}`;
+  // Prefer a real reading 8–15 minutes back (closest to 10); otherwise compare with the previous one.
+  const tenAgo = points
+    .filter((p) => cur.t - p.t >= 8 * 60000 && cur.t - p.t <= 15 * 60000)
+    .sort((a, b) => Math.abs(cur.t - a.t - 10 * 60000) - Math.abs(cur.t - b.t - 10 * 60000))[0];
+  const prev = points.length > 1 ? points.at(-2) : null;
+  const change = tenAgo ? `${signed(cur.mmol - tenAgo.mmol)} in ${Math.round((cur.t - tenAgo.t) / 60000)} min`
+    : prev ? `${signed(cur.mmol - prev.mmol)} since ${clockTime(prev.time)}`
     : 'One reading in the last hour';
   const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ')}. Shaded band is ${low} to 10 mmol/L.`;
 
