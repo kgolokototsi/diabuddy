@@ -8,7 +8,7 @@
     "build": "node ../scripts/build-site.mjs"
   },
   "devDependencies": {
-    "wrangler": "4.152.0"
+    "wrangler": "4.157.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "1.4.0",
