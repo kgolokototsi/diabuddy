@@ -397,6 +397,10 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 /* Today's log on Home */
 .log-time { flex: none; width: 3.2rem; font-size: 0.875rem; font-weight: 650; color: var(--label-2); font-variant-numeric: tabular-nums; }
 
+/* His serving: live carb total */
+.serve-total { display: flex; align-items: baseline; gap: 8px; margin: 12px calc(var(--gutter) + 4px) 0; color: var(--label-2); font-size: 0.9375rem; }
+.serve-total strong { font-size: 1.375rem; font-weight: 750; letter-spacing: -0.01em; color: var(--label); font-variant-numeric: tabular-nums; }
+
 /* Label photo preview */
 .label-photo { display: block; max-width: calc(100% - 32px); max-height: 200px; margin: 12px auto 4px; border-radius: 16px; object-fit: contain; box-shadow: var(--card-shadow); }
 

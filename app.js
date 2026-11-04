@@ -1162,6 +1162,16 @@ async function scanLabel(file) {
   }
 }
 
+// "2 biscuits (40 g)" → { count: 2, noun: 'biscuit', grams: 40 }. Used to suggest a piece weight.
+function parsePieces(label, grams) {
+  const m = /^\s*(\d+(?:[.,]\d+)?)\s+([a-zA-Z][a-zA-Z -]*?)\s*(?:\(|$)/.exec(label || '');
+  if (!m || !(grams > 0)) return null;
+  const count = Number(m[1].replace(',', '.'));
+  if (!(count > 0) || /^(g|ml|grams?)\b/i.test(m[2])) return null;
+  const noun = m[2].trim().replace(/(ies)$/i, 'y').replace(/(es)$/i, (s) => (/(ch|sh|x|s)es$/i.test(m[2].trim()) ? '' : 'e')).replace(/s$/i, '');
+  return { count, noun, pieceGrams: Math.round((grams / count) * 10) / 10 };
+}
+
 function openLabelReview(label, photoUrl) {
   if (!label.is_nutrition_label) {
     openSheet(`
@@ -1182,64 +1192,111 @@ function openLabelReview(label, photoUrl) {
     per100 = Math.max(0, Math.round((per100 - label.fibre_per_100g) * 10) / 10);
     fibreNote = `Fibre (${fmt(label.fibre_per_100g)} g) taken off the label’s total carbohydrate.`;
   }
-  const grams = label.serving_size_grams;
-  const perServing = per100 != null && grams ? Math.round(per100 * grams) / 100 : label.carbs_per_serving;
-  const servingLabel = label.serving_size_label || (grams ? `${fmt(grams, 0)} g` : per100 != null ? '100 g' : '');
-  const servingGrams = grams || (!label.serving_size_label && per100 != null ? 100 : null);
-  const servingCarbs = grams ? perServing : !label.serving_size_label && per100 != null ? per100 : perServing;
+  const labelGrams = label.serving_size_grams || null;
+  // Only a per-serving figure printed: work out per 100 g from it when the serving weight is known.
+  if (per100 == null && label.carbs_per_serving != null && labelGrams && label.carbs_excludes_fibre !== false) {
+    per100 = Math.round((label.carbs_per_serving / labelGrams) * 1000) / 10;
+  }
+  const labelServing = label.serving_size_label || (labelGrams ? `${fmt(labelGrams, 0)} g` : '');
+  const labelServingCarbs = per100 != null && labelGrams ? Math.round(per100 * labelGrams) / 100 : label.carbs_per_serving;
+  const pieces = parsePieces(label.serving_size_label, labelGrams);
   const name = [label.product_name, label.brand].filter(Boolean).filter((v, i, a) => i === 0 || !a[0].toLowerCase().includes(v.toLowerCase())).join(' – ');
   const unsure = label.confidence === 'low' ? '<strong>The reader wasn’t sure about this photo.</strong> Look extra carefully. ' : '';
+  const canWeigh = per100 != null;
+  let mode = labelServing && labelServingCarbs != null ? 'label' : canWeigh ? 'weigh' : 'label';
 
   openSheet(`
     ${sheetHeader('Check the label', 'Compare every number with the packet.')}
     <img class="label-photo" src="${photoUrl}" alt="Your photo of the label">
     <div class="banner banner-warn">${ICON.warn}<div>${unsure}These numbers are used for his insulin, so check them against the packet before saving.${label.notes ? ` ${esc(label.notes)}` : ''}</div></div>
-    <section class="section"><div class="group">
+
+    <section class="section"><h2 class="section-header">From the label</h2><div class="group">
       <div class="row field-row"><label for="lr-name">Name</label><input id="lr-name" class="wide" value="${esc(name)}" placeholder="What is it?" autocomplete="off"></div>
       <div class="row field-row"><label for="lr-cat">Group</label><select id="lr-cat" class="wide">${CATEGORIES.map((c) => `<option ${c === 'Snacks' ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
       <div class="row field-row"><label for="lr-100">Carbs per 100 g</label><input id="lr-100" inputmode="decimal" value="${per100 ?? ''}" placeholder="–" style="width:4.5rem"><span class="unit">g</span></div>
-      <div class="row field-row"><label for="lr-serving">Serving</label><input id="lr-serving" class="wide" value="${esc(servingLabel)}" placeholder="e.g. 2 biscuits" autocomplete="off"></div>
-      <div class="row field-row"><label for="lr-grams">Serving weight</label><input id="lr-grams" inputmode="decimal" value="${servingGrams ?? ''}" placeholder="–" style="width:4.5rem"><span class="unit">g</span></div>
-      <div class="row field-row"><label for="lr-carbs">Carbs per serving</label><input id="lr-carbs" inputmode="decimal" value="${servingCarbs != null ? fmt(servingCarbs) : ''}" placeholder="0" style="width:4.5rem"><span class="unit">g</span></div>
-    </div><p class="section-footer">${esc(fibreNote || 'Carbs per serving updates when you change the weight.')}</p><p class="field-error" id="lr-error" hidden></p></section>
+      ${labelServing ? `<div class="row"><span class="row-main"><span class="row-title">Label’s serving</span><span class="row-sub">${esc(labelServing)}${labelServingCarbs != null ? ` = ${fmt(labelServingCarbs)} g carbs` : ''}</span></span></div>` : ''}
+    </div>${fibreNote ? `<p class="section-footer">${esc(fibreNote)}</p>` : ''}</section>
+
+    <section class="section"><h2 class="section-header">His serving</h2>
+      <div class="segmented" role="group" aria-label="His serving" style="margin-top:0;margin-bottom:10px">
+        ${labelServing && labelServingCarbs != null ? '<button type="button" data-serve="label">Label serving</button>' : ''}
+        ${canWeigh ? '<button type="button" data-serve="weigh">Weigh it</button>' : ''}
+        ${canWeigh ? '<button type="button" data-serve="pieces">Count pieces</button>' : ''}
+      </div>
+      <div class="group">
+        <div class="row field-row" data-show="weigh"><label for="lr-g">Grams he has<span class="row-sub">Weigh it if you can</span></label><input id="lr-g" inputmode="decimal" value="${labelGrams ?? ''}" placeholder="0" style="width:4.5rem"><span class="unit">g</span></div>
+        <div class="row field-row" data-show="pieces"><label for="lr-n">How many</label><input id="lr-n" inputmode="decimal" value="${pieces?.count ?? 1}" style="width:4.5rem"></div>
+        <div class="row field-row" data-show="pieces"><label for="lr-noun">Piece</label><input id="lr-noun" class="wide" value="${esc(pieces?.noun || 'piece')}" placeholder="biscuit, slice…" autocomplete="off"></div>
+        <div class="row field-row" data-show="pieces"><label for="lr-pw">One piece weighs<span class="row-sub">${pieces ? 'Worked out from the label' : 'Weigh one if you can'}</span></label><input id="lr-pw" inputmode="decimal" value="${pieces?.pieceGrams ?? ''}" placeholder="0" style="width:4.5rem"><span class="unit">g</span></div>
+        <div class="row field-row" data-show="label"><label for="lr-carbs">Carbs per serving<span class="row-sub">From the label</span></label><input id="lr-carbs" inputmode="decimal" value="${labelServingCarbs != null ? fmt(labelServingCarbs) : ''}" placeholder="0" style="width:4.5rem"><span class="unit">g</span></div>
+      </div>
+      <div class="serve-total" id="lr-total" aria-live="polite"></div>
+      <p class="field-error" id="lr-error" hidden></p>
+    </section>
+
     <div class="sheet-actions">
       <button class="btn btn-primary" id="lr-save">Save to family foods</button>
       <button class="btn btn-secondary" id="lr-meal">Use for this meal only</button>
     </div>`, {
     onMount(root) {
-      let carbsEdited = false;
-      const recalc = () => {
+      // Works out his serving from whichever mode is selected: { label, grams, carbs } or a problem.
+      const serving = () => {
         const p100 = num($('#lr-100', root).value);
-        const g = num($('#lr-grams', root).value);
-        if (!carbsEdited && p100 != null && g) $('#lr-carbs', root).value = fmt((p100 * g) / 100);
+        if (mode === 'label') {
+          const carbs = num($('#lr-carbs', root).value);
+          return carbs == null ? { problem: 'Enter the carbs per serving from the label.' } : { label: labelServing, grams: labelGrams, carbs };
+        }
+        if (p100 == null) return { problem: 'Enter the carbs per 100 g from the label.' };
+        if (mode === 'weigh') {
+          const g = num($('#lr-g', root).value);
+          return !(g > 0) ? { problem: 'Enter how many grams he has.' } : { label: `${fmt(g)} g`, grams: g, carbs: (p100 * g) / 100 };
+        }
+        const n = num($('#lr-n', root).value);
+        const w = num($('#lr-pw', root).value);
+        const noun = $('#lr-noun', root).value.trim() || 'piece';
+        if (!(n > 0)) return { problem: 'Enter how many pieces he has.' };
+        if (!(w > 0)) return { problem: 'Enter what one piece weighs.' };
+        const plural = n === 1 ? noun : /(s|x|ch|sh)$/i.test(noun) ? `${noun}es` : /[^aeiou]y$/i.test(noun) ? `${noun.slice(0, -1)}ies` : `${noun}s`;
+        return { label: `${fmt(n)} ${plural} (${fmt(n * w)} g)`, grams: n * w, carbs: (p100 * n * w) / 100 };
       };
-      root.addEventListener('input', (e) => {
-        if (e.target.id === 'lr-carbs') carbsEdited = true;
-        if (e.target.id === 'lr-100' || e.target.id === 'lr-grams') recalc();
+      const paint = () => {
+        $$('[data-serve]', root).forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.serve === mode)));
+        $$('[data-show]', root).forEach((r) => { r.hidden = r.dataset.show !== mode; });
+        const s = serving();
+        $('#lr-total', root).innerHTML = s.problem
+          ? `<span>${esc(s.problem)}</span>`
+          : `<strong>${fmt(s.carbs)} g carbs</strong><span>for ${esc(s.label)}</span>`;
+      };
+      root.addEventListener('click', (e) => {
+        const m = e.target.closest('[data-serve]')?.dataset.serve;
+        if (m) { mode = m; paint(); }
       });
+      root.addEventListener('input', paint);
+      paint();
+
       const collect = () => {
+        const s = serving();
         const food = {
           name: $('#lr-name', root).value.trim(),
           category: $('#lr-cat', root).value,
-          serving: { label: $('#lr-serving', root).value.trim(), grams: num($('#lr-grams', root).value) || null },
-          netCarbs: num($('#lr-carbs', root).value),
+          serving: { label: s.label, grams: s.grams ? Math.round(s.grams * 10) / 10 : null },
+          netCarbs: s.carbs != null ? Math.round(s.carbs * 10) / 10 : null,
           per100g: num($('#lr-100', root).value),
           note: fibreNote || null,
           fromPhoto: true,
         };
-        const problem = !food.name ? 'Give it a name.' : !food.serving.label ? 'Describe the serving.'
-          : food.netCarbs == null || food.netCarbs < 0 || food.netCarbs > 300 ? 'Enter the carbs per serving.' : '';
+        const problem = s.problem || (!food.name ? 'Give it a name.' : food.netCarbs < 0 || food.netCarbs > 300 ? 'Those carbs look wrong. Check the label.' : '');
         const err = $('#lr-error', root);
         err.hidden = !problem;
         err.textContent = problem;
-        return problem ? null : { ...food, netCarbs: Math.round(food.netCarbs * 10) / 10 };
+        return problem ? null : food;
       };
       $('#lr-meal', root).addEventListener('click', () => {
         const food = collect();
         if (!food) return;
         addToMeal({ ...food, id: `photo-${Date.now().toString(36)}`, source: 'manual' });
         closeSheet();
-        toast(`Added ${food.name}. Change the amount in the meal tray.`);
+        toast(`Added ${food.name}`);
       });
       $('#lr-save', root).addEventListener('click', async (e) => {
         const food = collect();

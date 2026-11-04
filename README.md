@@ -130,7 +130,14 @@ If LibreLinkUp later asks the follower account to accept new terms, readings sto
 
 ## Photo of a label
 
-On **Foods**, tap **Photo of label** and take a picture of the nutrition table on a packet. DiaBuddy reads the carbohydrate per 100 g and the serving size, then shows them next to your photo for checking. Fix anything that doesn't match the packet, then tap one of:
+On **Foods**, tap **Photo of label** and take a picture of the nutrition table on a packet. DiaBuddy reads the carbohydrate per 100 g and the label's serving, then shows them next to your photo for checking. Fix anything that doesn't match the packet.
+
+Then set **his serving**, since the label's serving often isn't what he eats:
+- **Label serving:** as printed on the packet.
+- **Weigh it:** the grams he has.
+- **Count pieces:** e.g. 3 biscuits. The weight of one piece is worked out from the label, and you can change it.
+
+The carbs update as you type. Then tap one of:
 - **Save to family foods:** every family phone gets it.
 - **Use for this meal only:** it's added to this meal and not saved.
 
