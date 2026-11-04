@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>DiaBuddy Carb Counter</title>
   <meta name="description" content="Carb counting and insulin dose calculator for the family.">
-  <meta name="theme-color" content="#fbf6f0" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1c1714" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
   <meta name="color-scheme" content="light dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
@@ -24,20 +24,20 @@
     <main class="screen" id="screen-home" data-screen="home">
       <header class="nav">
         <p class="eyebrow">DiaBuddy</p>
-        <h1 class="large-title" id="greeting">Hello 👋</h1>
-        <p class="greeting-sub">What would you like to do?</p>
+        <p class="date-line" id="today-date"></p>
+        <h1 class="large-title" id="greeting">Hello</h1>
       </header>
       <div id="setup-banner"></div>
       <div id="cgm-card"></div>
       <div class="home-actions">
         <button class="home-tile tile-meal" data-action="start-meal">
           <span class="tile-emoji" aria-hidden="true">🍽️</span>
-          <span class="tile-text"><span class="tile-title">Meal dose</span><span class="tile-sub">Pick what he’s eating, then work out the dose</span></span>
+          <span class="tile-text"><span class="tile-title">Meal dose</span><span class="tile-sub">Count his food, then dose</span></span>
           <svg class="tile-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
         </button>
         <button class="home-tile tile-bg" data-action="correction">
           <span class="tile-emoji" aria-hidden="true">💧</span>
-          <span class="tile-text"><span class="tile-title">BG correction</span><span class="tile-sub">His BG is high and he isn’t eating</span></span>
+          <span class="tile-text"><span class="tile-title">Correction</span><span class="tile-sub">High BG, no food</span></span>
           <svg class="tile-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
         </button>
       </div>
@@ -54,7 +54,7 @@
       <div class="search-bar">
         <label class="search">
           <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="foods-search" type="search" placeholder="What’s on his plate?" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search foods">
+          <input id="foods-search" type="search" placeholder="Search foods" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search foods">
         </label>
       </div>
       <div class="chips" id="foods-chips" role="tablist" aria-label="Show"></div>

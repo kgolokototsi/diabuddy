@@ -249,7 +249,7 @@ function foodAvatar(food) {
 }
 
 function categoryTitle(name) {
-  return `${categoryStyle(name)[0]} ${name}`;
+  return name;
 }
 
 // `mode`: "add" adds one serving on tap; "detail" opens the food sheet.
@@ -408,7 +408,10 @@ function mealOfDay(now = new Date()) {
 
 function renderGreeting(now = new Date()) {
   const mins = now.getHours() * 60 + now.getMinutes();
-  $('#greeting').textContent = mins < 12 * 60 ? 'Good morning ☀️' : mins < 17 * 60 ? 'Good afternoon 🌤️' : 'Good evening 🌙';
+  $('#greeting').textContent = mins < 12 * 60 ? 'Good morning' : mins < 17 * 60 ? 'Good afternoon' : 'Good evening';
+  // "Wednesday 4 November" (en-ZA would give "Wednesday, 04 November").
+  const part = (opts) => now.toLocaleDateString('en-GB', opts);
+  $('#today-date').textContent = `${part({ weekday: 'long' })} ${now.getDate()} ${part({ month: 'long' })}`;
   $('#foods-sub').textContent = `Tap what he’s eating for ${mealOfDay(now)}`;
 }
 
@@ -428,7 +431,7 @@ function renderHome() {
   const el = $('#home-meal');
   const n = state.meal.length;
   const names = state.meal.map((l) => l.food.name).slice(0, 3).join(', ') + (n > 3 ? ` and ${n - 3} more` : '');
-  const meal = n ? section('🍽️ Meal so far', `
+  const meal = n ? section('Meal in progress', `
     <button class="row" data-action="start-meal">
       <span class="row-main"><span class="row-title">${fmt(mealCarbs())} g carbs · ${n} ${n === 1 ? 'food' : 'foods'}</span><span class="row-sub">${esc(names)}</span></span>
       ${ICON.chevron}
@@ -504,7 +507,7 @@ function todayLogHtml() {
   const saved = (state.todayLog || []).filter((e) => !pending.some((p) => p.id === e.id));
   const all = [...pending, ...saved].sort((a, b) => (a.at < b.at ? 1 : -1));
   if (!all.length) return '';
-  return section('📝 Today', all.map((e) => `
+  return section('Today', all.map((e) => `
     <button class="row" data-event="${esc(e.id)}">
       <span class="log-time">${clockTime(e.at)}</span>
       <span class="row-main"><span class="row-title">${esc(eventTitle(e))}</span><span class="row-sub">${esc(eventSub(e))}${e.pending ? ' · waiting for signal' : ''}</span></span>
@@ -547,8 +550,8 @@ function openEvent(id) {
 // ---------------------------------------------------------------- Foods screen (the one place for food)
 
 const VIEWS = [
-  ['usual', '⭐ His usual'],
-  ['all', '✨ All'],
+  ['usual', 'His usual'],
+  ['all', 'All'],
   ...CATEGORIES.map((c) => [c, categoryTitle(c)]),
   ['Family', categoryTitle('Family')],
   ['Packaged', `${categoryTitle('Packaged')} (SA)`],
@@ -574,14 +577,14 @@ function renderFoods() {
     const local = searchFoods(allLocalFoods(), q).slice(0, 40);
     const packaged = state.packaged ? searchFoods(state.packaged, q).slice(0, 25) : [];
     const parts = [];
-    if (local.length) parts.push(section('🔎 Foods', rows(local)));
-    if (state.packagedLoading) parts.push(`<section class="section"><h2 class="section-header">📦 Packaged in South Africa</h2>${loadingRow('Loading products…')}</section>`);
+    if (local.length) parts.push(section('Foods', rows(local)));
+    if (state.packagedLoading) parts.push(`<section class="section"><h2 class="section-header">Packaged in South Africa</h2>${loadingRow('Loading products…')}</section>`);
     else if (packaged.length) {
-      parts.push(section('📦 Packaged in South Africa', rows(packaged),
+      parts.push(section('Packaged in South Africa', rows(packaged),
         'From Open Food Facts. These are entered by the public, so check the carbs against the label.'));
     }
     if (!parts.length) {
-      parts.push(`<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>Hmm, nothing called “${esc(q)}”</strong>No problem. Type in the carbs from the label instead.</div>
+      parts.push(`<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>No matches for “${esc(q)}”</strong>Enter the carbs from the label instead.</div>
         <div class="sheet-actions"><button class="btn btn-secondary" data-action="manual">Carbs from a label</button></div>`);
     }
     el.innerHTML = parts.join('');
@@ -593,9 +596,9 @@ function renderFoods() {
     // Notebook and family foods are listed below already; don't show them twice.
     const recent = state.recent.filter((f) => f.source !== 'notebook' && f.source !== 'custom').slice(0, 6);
     el.innerHTML = [
-      recent.length ? section('🕒 Also had recently', rows(recent)) : '',
-      state.custom.length ? section('🏠 Family foods', rows(state.custom)) : '',
-      section('📒 From his food notebook', rows(notebook), 'Tap a food to add one serving. Change the amount in the meal tray below.'),
+      recent.length ? section('Also had recently', rows(recent)) : '',
+      state.custom.length ? section('Family foods', rows(state.custom)) : '',
+      section('His usual foods', rows(notebook), 'Tap a food to add one serving. Adjust amounts in the meal tray.'),
     ].join('');
     return;
   }
@@ -677,8 +680,8 @@ function renderSettings() {
   const history = `https://github.com/${REPO.owner}/${REPO.repo}/commits/${REPO.branch}/settings.json`;
   el.innerHTML = `
     ${s && !isConfigured(s) ? `<div class="banner banner-warn">${ICON.warn}<div><strong>Not set up yet</strong>${isAdmin() ? 'Tap “Change dose settings” and enter the numbers from his diabetes team.' : 'Ask the admin to set his carb ratio, correction factor and target.'}</div></div>` : ''}
-    ${section('💛 His numbers', doseRows, `${esc(loadedFrom)} Last changed ${fmtDate(s?.updatedAt)}. Only the admin can change these.`)}
-    ${section('📈 Glucose readings', cgmRows(), cgmUrl() ? 'Readings come from his Libre or Dexcom (whichever is newest) through the family relay. Each phone needs the family link once.' : '')}
+    ${section('His numbers', doseRows, `${esc(loadedFrom)} Last changed ${fmtDate(s?.updatedAt)}. Only the admin can change these.`)}
+    ${section('Glucose readings', cgmRows(), cgmUrl() ? 'Readings come from his Libre or Dexcom (whichever is newest) through the family relay. Each phone needs the family link once.' : '')}
     ${section('Admin', adminRows, isAdmin() ? 'Saving updates every family phone the next time DiaBuddy opens.' : '')}
     ${section('How the dose is worked out', `
       <div class="row"><span class="row-main"><span class="row-title">Food dose</span><span class="row-sub">Carbs ÷ carb ratio</span></span></div>
@@ -1441,20 +1444,20 @@ function openDose({ correctionOnly = false } = {}) {
         if (r.status !== 'ok' && !lowWithFood) { recordEl.innerHTML = ''; return; }
         if (lowWithFood) {
           if (!$('#record-low', recordEl)) {
-            recordEl.innerHTML = `<div class="sheet-actions"><button class="btn btn-secondary" id="record-low">📝 Record what he ate to treat the low</button></div>`;
+            recordEl.innerHTML = `<div class="sheet-actions"><button class="btn btn-secondary" id="record-low">Record low treatment</button></div>`;
           }
           return;
         }
         if (!$('#given', recordEl)) {
           recordEl.innerHTML = `
-            <section class="section"><h2 class="section-header">📝 Did you give it?</h2><div class="group">
+            <section class="section"><h2 class="section-header">Record dose</h2><div class="group">
               <div class="row field-row"><label for="given">Units given<span class="row-sub">Change it if you gave a different amount</span></label>
                 <span class="stepper"><button type="button" data-given="-1" aria-label="Half a unit less">${ICON.minus}</button></span>
                 <input id="given" inputmode="decimal" style="width:3.5rem;text-align:center">
                 <span class="stepper"><button type="button" data-given="1" aria-label="Half a unit more">${ICON.plus}</button></span>
               </div>
             </div><p class="section-footer">Saves the foods, BG and units to his log for the whole family.</p></section>
-            <div class="sheet-actions"><button class="btn btn-primary" id="record-dose">✓ Record as given</button></div>`;
+            <div class="sheet-actions"><button class="btn btn-primary" id="record-dose">Record as given</button></div>`;
         }
         if (!givenEdited) $('#given', recordEl).value = r.rounded.toFixed(1);
       };
