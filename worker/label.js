@@ -32,7 +32,11 @@ Rules:
 - Keep notes short and plain, written for a parent.`;
 
 export async function readLabel(env, { image, mediaType }) {
-  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  // Organisation-level keys must name a workspace on each request; workspace keys don't need it.
+  const client = new Anthropic({
+    apiKey: env.ANTHROPIC_API_KEY,
+    ...(env.ANTHROPIC_WORKSPACE_ID && { defaultHeaders: { 'anthropic-workspace-id': env.ANTHROPIC_WORKSPACE_ID } }),
+  });
   const message = await client.beta.messages.parse({
     model: 'claude-opus-5-5',
     max_tokens: 4000,

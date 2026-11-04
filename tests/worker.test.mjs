@@ -370,3 +370,19 @@ test('family foods: any family phone can add and remove; TV key can only read', 
   assert.equal((await req('DELETE', `/foods/${food.id}`, env.FAMILY_KEY)).status, 200);
   assert.equal((await (await req('GET', '/foods', env.FAMILY_KEY)).json()).foods.length, 0);
 });
+
+test('label scan: sends the workspace header when ANTHROPIC_WORKSPACE_ID is set', async () => {
+  const w = await load();
+  let seen;
+  const original = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).includes('api.anthropic.com')) seen = new Headers(init.headers).get('anthropic-workspace-id');
+    return original(url, init);
+  };
+  try {
+    await scan(w, { ...libreEnv, ANTHROPIC_API_KEY: 'sk-test', ANTHROPIC_WORKSPACE_ID: 'wrkspc_test123' });
+    assert.equal(seen, 'wrkspc_test123');
+  } finally {
+    globalThis.fetch = original;
+  }
+});

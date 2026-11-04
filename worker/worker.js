@@ -14,6 +14,7 @@
 //   LIBRE_EMAIL      a LibreLinkUp follower account that his LibreLink app shares with
 //   LIBRE_PASSWORD   that follower account's password
 //   ANTHROPIC_API_KEY optional; turns on "Photo of label" (reads nutrition tables with Claude)
+//   ANTHROPIC_WORKSPACE_ID only needed if that key isn't scoped to a workspace (wrkspc_…)
 // Plain variables:
 //   DEXCOM_REGION    "ous" (outside the US – South Africa), "us" or "jp". Default "ous".
 //   ALLOWED_ORIGIN   https://kgolokototsi.github.io
