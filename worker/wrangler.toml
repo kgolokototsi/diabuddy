@@ -46,4 +46,5 @@ crons = ["*/2 * * * *"]
 # Secrets – set these with `npx wrangler secret put <NAME>` or in the dashboard:
 #   Phones join with invites (no secret needed). FAMILY_KEY / TV_KEY are the old shared
 #   keys, accepted until the admin turns them off. For each sensor he uses:
-#   DEXCOM_USERNAME + DEXCOM_PASSWORD, LIBRE_EMAIL + LIBRE_PASSWORD (a LibreLinkUp follower)
+#   DEXCOM_USERNAME + DEXCOM_PASSWORD, LIBRE_EMAIL + LIBRE_PASSWORD (a LibreLinkUp follower).
+#   VAPID_PRIVATE_JWK signs high-glucose alerts (an ES256 private key as JWK).

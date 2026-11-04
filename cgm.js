@@ -56,7 +56,12 @@ const MESSAGES = {
   label_refused: 'The label reader couldn’t help with this photo. Type the carbs in instead.',
   label_unreadable: 'The label couldn’t be read clearly. Try a sharper photo, straight on.',
   bad_food: 'Fill in the name, serving and carbs.',
-  log_unavailable: 'The log isn’t set up on the relay.',
+  alerts_not_configured: 'Alerts aren’t set up on the relay yet.',
+  alerts_need_invite: 'Connect this phone with an invite from the admin to get alerts.',
+  bad_subscription: 'This phone’s browser gave an alert address DiaBuddy can’t use.',
+  not_subscribed: 'Turn alerts on first.',
+  push_failed: 'The test alert didn’t go through. Try again in a minute.',
+  log_unavailable:'The log isn’t set up on the relay.',
 };
 
 export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } = {}) {

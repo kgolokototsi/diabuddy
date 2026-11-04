@@ -23,6 +23,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readLabel } from './label.js';
 import { authenticate, can, createInvite, enroll, listDevices, removeDevice, turnOffLegacy, legacyActive, ROLES, sha256Hex } from './auth.js';
 import { readSettings, settingsHistory, writeSettings } from './settings.js';
+import { checkHigh, cleanSubscription, sendPush, subscriptionKey, vapidPublicKey, HIGH_FOR_MS } from './push.js';
 
 const MGDL_PER_MMOL = 18.0182;
 
@@ -310,13 +311,13 @@ async function recordReadings(env, readings, now = Date.now()) {
   }
 }
 
-// The last hour's logged points for one sensor, or for every sensor when source is null.
-async function loggedPoints(env, source, now = Date.now()) {
+// Logged points for one sensor (every sensor when source is null), from the last hour by default.
+async function loggedPoints(env, source, now = Date.now(), windowMs = 60 * 60000) {
   if (!env.LOG) return [];
   try {
-    const days = [...new Set([dayKey(now - 60 * 60000), dayKey(now)])];
+    const days = [...new Set([dayKey(now - windowMs), dayKey(now)])];
     const logs = await Promise.all(days.map((k) => env.LOG.get(k, 'json')));
-    return logs.flat().filter((p) => p && (source == null || p.source === source));
+    return logs.flat().filter((p) => p && (source == null || p.source === source) && now - p.time <= windowMs);
   } catch {
     return [];
   }
@@ -546,7 +547,7 @@ const ipTag = async (request) => (await sha256Hex(request.headers.get('CF-Connec
 
 // ---------------------------------------------------------------- entry point
 
-const API_PATHS = ['/latest', '/events', '/foods', '/scan-label', '/settings', '/me', '/enroll', '/invites', '/devices', '/erase', '/legacy-off'];
+const API_PATHS = ['/latest', '/events', '/foods', '/scan-label', '/settings', '/me', '/enroll', '/invites', '/devices', '/erase', '/legacy-off', '/push'];
 const isApi = (path) => API_PATHS.some((p) => path === p || path.startsWith(`${p}/`));
 
 async function readJson(request, maxChars = 8000) {
@@ -642,6 +643,36 @@ export default {
       return result.error ? json({ error: result.error }, 400, cors) : json(result, 200, cors);
     }
 
+    // High-glucose alerts for this phone: GET status, PUT its push subscription, DELETE to stop,
+    // POST /push/test to send itself a test alert.
+    if (path === '/push' || path === '/push/test') {
+      if (!can(device, 'alerts') || device.legacy) return json({ error: 'alerts_need_invite' }, 403, cors);
+      if (!env.VAPID_PRIVATE_JWK) return json({ error: 'alerts_not_configured' }, 503, cors);
+      const key = subscriptionKey(device.id);
+      if (path === '/push' && method === 'GET') {
+        return json({ publicKey: vapidPublicKey(env), subscribed: Boolean(await env.LOG.get(key)) }, 200, cors);
+      }
+      if (path === '/push' && method === 'PUT') {
+        const { body, bad, tooLarge } = await readJson(request, 2000);
+        const sub = bad || tooLarge ? null : cleanSubscription(body);
+        if (!sub) return json({ error: 'bad_subscription' }, 400, cors);
+        await env.LOG.put(key, JSON.stringify({ ...sub, deviceId: device.id, createdAt: new Date().toISOString() }));
+        return json({ subscribed: true }, 200, cors);
+      }
+      if (path === '/push' && method === 'DELETE') {
+        await env.LOG.delete(key);
+        return json({ subscribed: false }, 200, cors);
+      }
+      if (path === '/push/test' && method === 'POST') {
+        const sub = await env.LOG.get(key, 'json');
+        if (!sub) return json({ error: 'not_subscribed' }, 400, cors);
+        const result = await sendPush(env, sub, { title: 'DiaBuddy', body: 'Test alert. High-glucose alerts are on for this phone.', tag: 'test' });
+        if (result === 'gone') await env.LOG.delete(key);
+        return result === 'sent' ? json({ sent: true }, 200, cors) : json({ error: 'push_failed' }, 502, cors);
+      }
+      return json({ error: 'not_found' }, 404, cors);
+    }
+
     // A phone may always remove itself; removing others is for the admin.
     if (path.startsWith('/devices/') && method === 'DELETE') {
       const id = path.split('/')[2] || '';
@@ -674,8 +705,14 @@ export default {
     return json({ error: 'not_found' }, 404, cors);
   },
 
-  // Cron trigger (wrangler.toml): log each new reading so we have every minute.
+  // Cron trigger (wrangler.toml): log each new reading so we have every minute,
+  // then check whether he has been high long enough to alert the family.
   async scheduled(_event, env, ctx) {
-    ctx.waitUntil(readSensors(env).then(({ readings }) => recordReadings(env, readings)).catch(() => {}));
+    ctx.waitUntil((async () => {
+      const { readings } = await readSensors(env);
+      await recordReadings(env, readings);
+      const now = Date.now();
+      await checkHigh(env, await loggedPoints(env, null, now, HIGH_FOR_MS + 30 * 60000), now);
+    })().catch((err) => console.warn('scheduled job failed', err?.name)));
   },
 };

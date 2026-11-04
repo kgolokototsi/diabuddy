@@ -9,8 +9,8 @@
 // admin turns them off, so the move never leaves the family unable to dose.
 
 const PERMISSIONS = {
-  admin: ['read', 'log', 'foods', 'scan', 'admin'],
-  family: ['read', 'log', 'foods', 'scan'],
+  admin: ['read', 'log', 'foods', 'scan', 'alerts', 'admin'],
+  family: ['read', 'log', 'foods', 'scan', 'alerts'],
   tv: ['read'],
 };
 export const ROLES = Object.keys(PERMISSIONS);
@@ -111,6 +111,7 @@ export async function removeDevice(env, id) {
   const match = (await listDevices(env)).find((d) => d.id === id);
   if (!match) return false;
   await env.LOG.delete(`device:${match.hash}`);
+  await env.LOG.delete(`push:${match.id}`); // and its alerts
   return true;
 }
 

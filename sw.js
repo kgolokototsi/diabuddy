@@ -2,9 +2,9 @@
 //
 // The API (readings, log, settings, phones) shares this origin, and those responses
 // hold his personal data, so they are never cached here: only the files below are.
-const VERSION = 'diabuddy-v19';
+const VERSION = 'diabuddy-v20';
 const SHELL = [
-  './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'spring.js', 'config.js', 'cgm.js', 'fonts/inter-latin.woff2',
+  './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'spring.js', 'config.js', 'cgm.js', 'alerts.js', 'fonts/inter-latin.woff2',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'data/foods.json',
 ];
 // App files that may be cached: the shell, food data, fonts and icons.
@@ -22,6 +22,25 @@ self.addEventListener('activate', (e) => {
       .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
+});
+
+// High-glucose alerts from the relay (see worker/push.js). Shown as plain text only.
+self.addEventListener('push', (e) => {
+  let msg = {};
+  try { msg = e.data?.json() || {}; } catch {}
+  e.waitUntil(self.registration.showNotification(String(msg.title || 'DiaBuddy').slice(0, 80), {
+    body: String(msg.body || '').slice(0, 240),
+    icon: 'icons/icon-192.png',
+    tag: String(msg.tag || 'diabuddy').slice(0, 32),
+    renotify: true,
+  }));
+});
+
+// Tapping the alert opens DiaBuddy (or brings it to the front).
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+    .then((list) => (list[0] ? list[0].focus() : self.clients.openWindow('./'))));
 });
 
 self.addEventListener('fetch', (e) => {

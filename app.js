@@ -2,6 +2,7 @@ import { calculateDose, parseBg, lineCarbs, isConfigured, BG_MIN, BG_MAX } from 
 import { loadFoods, searchFoods, loadPackaged, lookupBarcode, CATEGORIES, SOURCE_LABEL } from './foods.js';
 import { spring, project, rubberband, VelocityTracker } from './spring.js';
 import { RELAY_URL, APP_VERSION } from './config.js';
+import { alertSupport, alertsOn, turnOnAlerts, turnOffAlerts, sendTestAlert } from './alerts.js';
 import { getCgmKey, setCgmKey, consumeJoinCode, joinCodeFrom, inviteLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
 
 // ---------------------------------------------------------------- helpers
@@ -55,6 +56,7 @@ const state = {
   meal: [],
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
+  alerts: { on: null },
   me: store.get('me', null), // { id, name, role, legacy } from the relay
   githubFoods: [],
   relayFoods: store.get('relay-foods', []),
@@ -123,6 +125,9 @@ function forgetThisPhone() {
   state.cgm = { reading: null, error: null, at: 0, loading: false };
   for (const k of ['me', 'settings', 'relay-foods', 'pending-events']) store.set(k, null);
   try { localStorage.removeItem('diabuddy.meal'); } catch {}
+  // The relay forgets this phone's alerts with the phone; drop the browser's side too.
+  state.alerts = { on: null };
+  navigator.serviceWorker?.getRegistration().then((reg) => reg?.pushManager.getSubscription()).then((sub) => sub?.unsubscribe()).catch(() => {});
 }
 
 // Family foods come from two places: the admin's GitHub file (older) and the relay,
@@ -715,6 +720,54 @@ function phoneRows() {
   ].join('');
 }
 
+// High-glucose alerts for this phone. state.alerts.on: null until checked, then true/false.
+function alertRows() {
+  const me = state.me;
+  if (!getCgmKey() || !me || me.role === 'tv') return '';
+  const title = 'High for over 2.5 hours';
+  const note = (sub) => `<div class="row"><span class="row-main"><span class="row-title">${title}</span><span class="row-sub">${sub}</span></span></div>`;
+  if (me.legacy) return note('Connect this phone with an invite from the admin to get alerts.');
+  const support = alertSupport();
+  if (support === 'home-screen') return note('On iPhone, alerts only work from the Home Screen icon. Add DiaBuddy to the Home Screen (Share → Add to Home Screen), open it from there, then turn alerts on here.');
+  if (support === 'blocked') return note('Notifications are blocked for DiaBuddy. Allow them in the phone’s settings, then come back here.');
+  if (support === 'unsupported') return note('This browser can’t show alerts. Try Chrome on Android, or the Home Screen app on iPhone.');
+
+  const { on, busy } = state.alerts;
+  if (on == null && !busy) {
+    state.alerts.busy = true;
+    alertsOn().then((v) => { state.alerts = { on: v }; }, () => { state.alerts = { on: false }; })
+      .finally(() => { if (state.tab === 'settings') renderSettings(); });
+  }
+  return `<div class="row"><span class="row-main"><label for="alerts-high" class="row-title">${title}</label>
+      <span class="row-sub">Notifies this phone when he’s been ${HIGH_MMOL} mmol/L or higher for 2.5 hours.</span></span>
+      <input type="checkbox" class="switch" id="alerts-high" ${on ? 'checked' : ''} ${on == null || busy ? 'disabled' : ''}></div>
+    ${on ? '<button class="row" data-action="test-alert"><span class="row-main"><span class="row-title row-link">Send a test alert</span></span></button>' : ''}`;
+}
+
+async function toggleAlerts(input) {
+  const want = input.checked;
+  state.alerts = { on: !want, busy: true };
+  input.disabled = true;
+  try {
+    if (want) await turnOnAlerts(); else await turnOffAlerts();
+    state.alerts = { on: want };
+    toast(want ? 'Alerts are on for this phone' : 'Alerts are off for this phone');
+  } catch (err) {
+    state.alerts = { on: !want };
+    toast(err.message || 'Couldn’t change alerts. Try again.');
+  }
+  renderSettings();
+}
+
+async function testAlert() {
+  try {
+    await sendTestAlert();
+    toast('Test alert sent');
+  } catch (err) {
+    toast(err.message || 'The test alert didn’t send. Try again.');
+  }
+}
+
 function renderSettings() {
   const s = state.settings;
   const el = $('#settings-body');
@@ -740,10 +793,12 @@ function renderSettings() {
     <button class="row" data-action="phones"><span class="row-main"><span class="row-title row-link">Phones</span><span class="row-sub">Invite, see and remove family phones</span></span>${ICON.chevron}</button>
     <button class="row" data-action="delete-data"><span class="row-main"><span class="row-title row-danger">Delete his stored data</span></span>${ICON.chevron}</button>` : '';
 
+  const alerts = alertRows();
   el.innerHTML = `
     ${s && !isConfigured(s) ? `<div class="banner banner-warn">${ICON.warn}<div><strong>Not set up yet</strong>${isAdmin() ? 'Tap “Change dose settings” and enter the numbers from his diabetes team.' : 'Ask the admin to set his carb ratio, correction factor and target.'}</div></div>` : ''}
     ${section('His numbers', doseRows, s ? `${esc(loadedFrom)} Last changed ${fmtDate(s.updatedAt)}${s.updatedBy ? ` by ${esc(s.updatedBy)}` : ''}. Only the admin can change these.` : '')}
     ${section('This phone', phoneRows(), 'Each phone has its own key. Removing one doesn’t affect the others.')}
+    ${alerts ? section('Alerts', alerts, 'These add to the Dexcom and Libre app alarms; they don’t replace them. A notification can arrive late, or be silenced by Focus or Do Not Disturb.') : ''}
     ${adminRows ? section('Admin', adminRows, 'Changes reach every family phone the next time DiaBuddy opens.') : ''}
     ${section('How the dose is worked out', `
       <div class="row"><span class="row-main"><span class="row-title">Food dose</span><span class="row-sub">Carbs ÷ carb ratio</span></span></div>
@@ -2066,6 +2121,7 @@ const actions = {
   'add-family-food': () => openFamilyFoodForm(),
   'photo-label': openPhotoLabel,
   'cgm-refresh': refreshCgm,
+  'test-alert': testAlert,
 };
 
 function initEvents() {
@@ -2093,6 +2149,7 @@ function initEvents() {
   });
 
   $('#foods-search').addEventListener('input', (e) => { state.foodsQuery = e.target.value; renderFoods(); });
+  document.addEventListener('change', (e) => { if (e.target.id === 'alerts-high') toggleAlerts(e.target); });
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;

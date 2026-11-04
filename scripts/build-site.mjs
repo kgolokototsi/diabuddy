@@ -12,7 +12,7 @@ const dist = path.join(root, 'dist');
 
 const FILES = [
   'index.html', 'styles.css', 'manifest.webmanifest', 'sw.js',
-  'app.js', 'dose.js', 'foods.js', 'spring.js', 'config.js', 'cgm.js',
+  'app.js', 'dose.js', 'foods.js', 'spring.js', 'config.js', 'cgm.js', 'alerts.js',
   'data/foods.json', 'data/za-products.json', 'data/foods-custom.json',
 ];
 const DIRS = ['fonts', 'icons'];

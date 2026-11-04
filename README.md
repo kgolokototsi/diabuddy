@@ -27,6 +27,7 @@ Other things you can do:
 - **Insulin in the last 3 hours:** switch this on if he's had insulin recently. DiaBuddy then leaves out the high-BG correction so doses don't stack.
 - If his BG is **below 4.0**, DiaBuddy won't show a dose. Treat the low first.
 - **Disconnect this phone** (Settings) removes his data from the phone, e.g. before you hand it on.
+- **High-glucose alerts** (Settings → Alerts): when he has been 14 mmol/L or higher for 2.5 hours, the phone gets *"Glucose reading High for over 2.5 hours. Consider a correction dosage."* One alert per high spell. On iPhone this only works from the Home Screen icon. These add to the Dexcom and Libre alarms; they don't replace them.
 
 ### The food badges
 

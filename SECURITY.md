@@ -16,11 +16,12 @@ DiaBuddy handles a child's glucose readings, insulin doses and dose settings. Un
 | Family foods | Cloudflare KV (`food:…`) | Connected phones | Until removed |
 | Phone records | Cloudflare KV (`device:<sha256 of key>`) | Admin phones (names and roles only) | Until removed |
 | Invites | Cloudflare KV (`invite:<sha256 of code>`) | No one; they're only redeemed | 24 hours, single use |
-| Dexcom / LibreLinkUp logins, Anthropic API key | Cloudflare Worker secrets (encrypted) | Only the relay code | Until rotated |
+| Alert subscriptions (a phone's push address and keys) | Cloudflare KV (`push:<device id>`, `high-alert`) | Only the relay | Until the phone turns alerts off or is removed |
+| Dexcom / LibreLinkUp logins, Anthropic API key, alert signing key (`VAPID_PRIVATE_JWK`) | Cloudflare Worker secrets (encrypted) | Only the relay code | Until rotated |
 | Each phone's own key, cached settings, meal in progress | That phone's browser storage | That phone | Until "Disconnect this phone" |
 | App code, USDA/Open Food Facts food data | Private GitHub repo; Cloudflare static assets | Public (no personal data) | — |
 
-Label photos are sent to Anthropic to be read and aren't stored by DiaBuddy. Under Anthropic's commercial API terms, inputs aren't used for training by default.
+Label photos are sent to Anthropic to be read and aren't stored by DiaBuddy. High-glucose alerts are encrypted for each phone (Web Push, RFC 8291) before they leave the relay, so the push service (Google, Apple, Mozilla, Microsoft) passes them on but can't read them. Under Anthropic's commercial API terms, inputs aren't used for training by default.
 
 The repo was public before 4 November 2026. Its Git history still contains old `settings.json` versions (his dose numbers). Making the repo private hides them. Removing them for good would mean re-creating the repo.
 
@@ -48,7 +49,7 @@ The repo was public before 4 November 2026. Its Git history still contains old `
 | A07 Identification & authentication · API2 broken authentication | Per-phone keys, single-use expiring invites, rate-limited joining, immediate revocation. |
 | A08 Software & data integrity | Deploys come only from this repo by the admin, via Wrangler. The relay validates and size-limits every write (events, foods, settings, photos). |
 | A09 Logging & monitoring | Failed joins and failed keys are logged in Cloudflare with the route and a hashed IP tag. Keys, request bodies and health data are never logged. Settings changes are kept with who made them. |
-| A10 SSRF | The relay only calls fixed hosts (Dexcom, LibreView, Anthropic). No user-supplied URLs are fetched. |
+| A10 SSRF | The relay only calls fixed hosts (Dexcom, LibreView, Anthropic). The one address a phone supplies, its alert (push) address, must be HTTPS on a browser push service (`fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`); anything else is refused. |
 | API4 Unrestricted resource consumption | Cloudflare rate limits: 120 requests a minute per phone, 5 joins a minute per IP, 3 label photos a minute per phone plus 60 a day overall. Request bodies are size-capped. A spend limit is set on the Anthropic workspace. |
 | API6 Sensitive business flows | Label photos and invites need a Family or Admin phone. Data deletion needs an admin and a typed confirmation. |
 | API8 Security misconfiguration · API9 inventory | All routes are listed in `worker/worker.js` (`API_PATHS`). There are no hidden or debug endpoints. |
@@ -65,6 +66,7 @@ The repo was public before 4 November 2026. Its Git history still contains old `
 | **A phone is lost or stolen** | Admin: Settings → Phones → **Remove** that phone. It stops working immediately. |
 | **An invite link was sent to the wrong person** | If it's unused, it expires in 24 hours. If it was used, remove the phone it created. |
 | **Someone might have the old shared link** | Settings → Phones → **Turn off the old shared link**, then delete `FAMILY_KEY` and `TV_KEY` in Cloudflare. |
+| **The alert signing key may have leaked** | Make a new one and run `wrangler secret put VAPID_PRIVATE_JWK`. Every phone then turns alerts off and on again. |
 | **The Anthropic key may have leaked** | Create a new key in the DiaBuddy workspace. In `worker/` run `npx wrangler secret put ANTHROPIC_API_KEY`, then delete the old key in the Console. Check usage for anything unexpected. |
 | **The Dexcom or LibreLinkUp password may have leaked** | Change it with Dexcom or Abbott, then run `npx wrangler secret put DEXCOM_PASSWORD` (or `LIBRE_PASSWORD`). |
 | **This PC is lost or compromised** | In Cloudflare: change your password, revoke Wrangler's login (My Profile → API Tokens), rotate every Worker secret above. In GitHub: revoke tokens and sessions. In Anthropic: rotate the key. |
