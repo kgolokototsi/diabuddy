@@ -46,7 +46,7 @@ const MEAL_TTL_MS = 4 * 60 * 60 * 1000;
 // ---------------------------------------------------------------- state
 
 const state = {
-  tab: 'meal',
+  tab: 'home',
   base: [],
   custom: [],
   packaged: null,
@@ -56,7 +56,6 @@ const state = {
   meal: [],
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
-  mealQuery: '',
   foodsQuery: '',
   category: null,
   scroll: {},
@@ -118,7 +117,6 @@ function ensurePackaged() {
     .catch(() => { state.packaged = []; })
     .finally(() => {
       state.packagedLoading = false;
-      renderMealResults();
       renderFoods();
     });
 }
@@ -264,7 +262,7 @@ function section(title, rowsHtml, footer = '') {
 const loadingRow = (text) => `<div class="loading-row"><span class="spinner" aria-hidden="true"></span>${esc(text)}</div>`;
 
 function refreshRows() {
-  renderMealResults();
+  renderHome();
   renderFoods();
 }
 
@@ -320,17 +318,20 @@ function refreshCgm() {
   if (cgmReady()) getReading({ maxAgeMs: 0 }).catch(() => {});
 }
 
-// ---------------------------------------------------------------- Meal screen
+// ---------------------------------------------------------------- Home screen
 
-function renderGreeting(now = new Date()) {
+function mealOfDay(now = new Date()) {
   const mins = now.getHours() * 60 + now.getMinutes();
-  const hello = mins < 12 * 60 ? 'Good morning ☀️' : mins < 17 * 60 ? 'Good afternoon 🌤️' : 'Good evening 🌙';
-  const meal = mins >= 5 * 60 && mins < 10 * 60 ? 'breakfast'
+  return mins >= 5 * 60 && mins < 10 * 60 ? 'breakfast'
     : mins >= 11 * 60 + 30 && mins < 14 * 60 + 30 ? 'lunch'
     : mins >= 17 * 60 && mins < 20 * 60 + 30 ? 'supper'
     : 'snack';
-  $('#greeting').textContent = hello;
-  $('#greeting-sub').textContent = `Let’s count his ${meal}`;
+}
+
+function renderGreeting(now = new Date()) {
+  const mins = now.getHours() * 60 + now.getMinutes();
+  $('#greeting').textContent = mins < 12 * 60 ? 'Good morning ☀️' : mins < 17 * 60 ? 'Good afternoon 🌤️' : 'Good evening 🌙';
+  $('#foods-sub').textContent = `Tap what he’s eating for ${mealOfDay(now)}`;
 }
 
 function renderSetupBanner() {
@@ -344,89 +345,101 @@ function renderSetupBanner() {
   }
 }
 
-function renderMealResults() {
-  const el = $('#meal-results');
-  const q = state.mealQuery.trim();
-  if (!q) {
-    const notebook = state.base.filter((f) => f.source === 'notebook');
-    const recent = state.recent.slice(0, 6);
-    el.innerHTML = [
-      recent.length ? section('🕒 Recently eaten', recent.map((f) => foodRow(f)).join('')) : '',
-      state.custom.length ? section('🏠 Family foods', state.custom.map((f) => foodRow(f)).join('')) : '',
-      section('📒 His usual foods', notebook.map((f) => foodRow(f)).join(''), 'Tap a food to add one serving. You can change the amount in the meal tray.'),
-    ].join('');
-    return;
-  }
-
-  ensurePackaged();
-  const local = searchFoods(allLocalFoods(), q).slice(0, 40);
-  const packaged = state.packaged ? searchFoods(state.packaged, q).slice(0, 25) : [];
-  const parts = [];
-  if (local.length) parts.push(section('🔎 Foods', local.map((f) => foodRow(f)).join('')));
-  if (state.packagedLoading) parts.push(`<section class="section"><h2 class="section-header">Packaged in South Africa</h2>${loadingRow('Loading products…')}</section>`);
-  else if (packaged.length) {
-    parts.push(section('📦 Packaged in South Africa', packaged.map((f) => foodRow(f)).join(''),
-      'From Open Food Facts. These are entered by the public, so check the carbs against the label.'));
-  }
-  if (!parts.length) {
-    parts.push(`<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>Hmm, nothing called “${esc(q)}”</strong>No problem. Type in the carbs from the label instead.</div>
-      <div class="sheet-actions"><button class="btn btn-secondary" data-action="manual">Carbs from a label</button></div>`);
-  }
-  el.innerHTML = parts.join('');
+// A meal in progress gets a card on Home so nobody loses track of it.
+function renderHome() {
+  const el = $('#home-meal');
+  const n = state.meal.length;
+  if (!n) { el.innerHTML = ''; return; }
+  const names = state.meal.map((l) => l.food.name).slice(0, 3).join(', ') + (n > 3 ? ` and ${n - 3} more` : '');
+  el.innerHTML = section('🍽️ Meal so far', `
+    <button class="row" data-action="start-meal">
+      <span class="row-main"><span class="row-title">${fmt(mealCarbs())} g carbs · ${n} ${n === 1 ? 'food' : 'foods'}</span><span class="row-sub">${esc(names)}</span></span>
+      ${ICON.chevron}
+    </button>
+    <button class="row" data-action="calculate"><span class="row-main"><span class="row-title row-link">Work out dose</span></span>${ICON.chevron}</button>`);
 }
 
-// ---------------------------------------------------------------- Foods screen
+// ---------------------------------------------------------------- Foods screen (the one place for food)
+
+const VIEWS = [
+  ['usual', '⭐ His usual'],
+  ['all', '✨ All'],
+  ...CATEGORIES.map((c) => [c, categoryTitle(c)]),
+  ['Family', categoryTitle('Family')],
+  ['Packaged', `${categoryTitle('Packaged')} (SA)`],
+];
 
 function renderFoods() {
-  const cats = ['All', ...CATEGORIES, ...(state.custom.length ? ['Family'] : []), 'Packaged'];
-  $('#foods-chips').innerHTML = cats.map((c) => {
-    const selected = (state.category ?? 'All') === c;
-    return `<button class="chip" role="tab" data-cat="${esc(c)}" aria-selected="${selected}">${c === 'All' ? '✨ All' : esc(categoryTitle(c === 'Packaged' ? 'Packaged' : c)) + (c === 'Packaged' ? ' (SA)' : '')}</button>`;
-  }).join('');
-
+  const view = state.category || 'usual';
+  $('#foods-chips').innerHTML = VIEWS
+    .filter(([key]) => key !== 'Family' || state.custom.length)
+    .map(([key, label]) => `<button class="chip" role="tab" data-cat="${esc(key)}" aria-selected="${view === key}">${esc(label)}</button>`)
+    .join('');
   $('#foods-admin').innerHTML = isAdmin()
-    ? `<div class="quick-actions"><button class="pill-button" data-action="add-family-food">${ICON.plus} Add a family food</button></div>`
+    ? `<button class="pill-button" data-action="add-family-food">${ICON.plus} Add a family food</button>`
     : '';
 
   const el = $('#foods-results');
   const q = state.foodsQuery.trim();
-  const cat = state.category;
+  const rows = (list) => list.map((f) => foodRow(f)).join('');
 
-  if (cat === 'Packaged') {
+  // Typing searches everything, whatever chip is selected.
+  if (q) {
     ensurePackaged();
-    if (state.packagedLoading) { el.innerHTML = loadingRow('Loading products…'); return; }
-    if (!q) {
-      el.innerHTML = `<div class="empty"><span class="empty-emoji" aria-hidden="true">📦</span><strong>Search packaged foods</strong>${state.packaged?.length ? `${state.packaged.length.toLocaleString('en-ZA')} South African products` : 'South African products'} from Open Food Facts. Try “Weet-Bix” or “Pronutro”.</div>`;
-      return;
+    const local = searchFoods(allLocalFoods(), q).slice(0, 40);
+    const packaged = state.packaged ? searchFoods(state.packaged, q).slice(0, 25) : [];
+    const parts = [];
+    if (local.length) parts.push(section('🔎 Foods', rows(local)));
+    if (state.packagedLoading) parts.push(`<section class="section"><h2 class="section-header">📦 Packaged in South Africa</h2>${loadingRow('Loading products…')}</section>`);
+    else if (packaged.length) {
+      parts.push(section('📦 Packaged in South Africa', rows(packaged),
+        'From Open Food Facts. These are entered by the public, so check the carbs against the label.'));
     }
-    const hits = searchFoods(state.packaged || [], q).slice(0, 60);
-    el.innerHTML = hits.length
-      ? section(null, hits.map((f) => foodRow(f, 'detail')).join(''), 'Entered by the public. Check the carbs against the label.')
-      : `<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>No products match “${esc(q)}”</strong>Try the brand name, or scan the barcode on the Meal tab.</div>`;
+    if (!parts.length) {
+      parts.push(`<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>Hmm, nothing called “${esc(q)}”</strong>No problem. Type in the carbs from the label instead.</div>
+        <div class="sheet-actions"><button class="btn btn-secondary" data-action="manual">Carbs from a label</button></div>`);
+    }
+    el.innerHTML = parts.join('');
     return;
   }
 
-  let list = cat === 'Family' ? state.custom : allLocalFoods();
-  list = searchFoods(list, q, cat && cat !== 'Family' ? cat : null);
-  if (!list.length) {
-    el.innerHTML = `<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>No foods found</strong>Try another word, or look under Packaged (SA).</div>`;
+  if (view === 'usual') {
+    const notebook = state.base.filter((f) => f.source === 'notebook');
+    // Notebook and family foods are listed below already; don't show them twice.
+    const recent = state.recent.filter((f) => f.source !== 'notebook' && f.source !== 'custom').slice(0, 6);
+    el.innerHTML = [
+      recent.length ? section('🕒 Also had recently', rows(recent)) : '',
+      state.custom.length ? section('🏠 Family foods', rows(state.custom)) : '',
+      section('📒 From his food notebook', rows(notebook), 'Tap a food to add one serving. Change the amount in the meal tray below.'),
+    ].join('');
     return;
   }
-  if (cat) {
-    el.innerHTML = section(null, list.map((f) => foodRow(f, 'detail')).join(''));
+
+  if (view === 'Packaged') {
+    ensurePackaged();
+    el.innerHTML = state.packagedLoading ? loadingRow('Loading products…')
+      : `<div class="empty"><span class="empty-emoji" aria-hidden="true">📦</span><strong>Search packaged foods</strong>${state.packaged?.length ? `${state.packaged.length.toLocaleString('en-ZA')} South African products` : 'South African products'} from Open Food Facts. Type a name above, like “Weet-Bix”, or use Barcode.</div>`;
     return;
   }
-  const groups = new Map();
-  for (const f of list) {
-    const key = f.source === 'custom' ? 'Family' : f.category;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(f);
+
+  if (view === 'all') {
+    const groups = new Map();
+    for (const f of allLocalFoods()) {
+      const key = f.source === 'custom' ? 'Family' : f.category;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(f);
+    }
+    const order = ['Family', ...CATEGORIES];
+    el.innerHTML = [...groups.entries()]
+      .sort((x, y) => order.indexOf(x[0]) - order.indexOf(y[0]))
+      .map(([name, foods]) => section(categoryTitle(name), rows(searchFoods(foods, ''))))
+      .join('');
+    return;
   }
-  const order = ['Family', ...CATEGORIES];
-  el.innerHTML = [...groups.entries()]
-    .sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]))
-    .map(([name, foods]) => section(categoryTitle(name), foods.map((f) => foodRow(f, 'detail')).join('')))
-    .join('');
+
+  const list = view === 'Family' ? searchFoods(state.custom, '') : searchFoods(allLocalFoods(), '', view);
+  el.innerHTML = list.length ? section(null, rows(list))
+    : `<div class="empty"><span class="empty-emoji" aria-hidden="true">🤔</span><strong>Nothing here yet</strong>Try another group, or search above.</div>`;
 }
 
 // ---------------------------------------------------------------- Settings screen
@@ -561,14 +574,15 @@ function renderTray({ pulse = false } = {}) {
     </section>
     <div class="sheet-actions"><button class="btn btn-danger" data-action="clear-meal">Clear meal</button></div>` : '';
 
-  document.body.classList.toggle('has-tray', n > 0);
-  if (n && !tray.visible) {
+  const show = n > 0 && state.tab === 'foods';
+  document.body.classList.toggle('has-tray', show);
+  if (show && !tray.visible) {
     tray.visible = true;
     tray.el.hidden = false;
     setTrayY(tray.hiddenY);
     tray.expanded = false;
     animateTray(tray.collapsedY);
-  } else if (!n && tray.visible) {
+  } else if (!show && tray.visible) {
     tray.visible = false;
     tray.expanded = false;
     animateTray(tray.hiddenY, { onComplete: () => { if (!tray.visible) tray.el.hidden = true; } });
@@ -844,7 +858,9 @@ function openLineEditor(foodId) {
   const food = line.food;
   openSheet(`
     ${sheetHeader(food.name, badge(food))}
+    ${food.note ? `<div class="banner banner-info">${ICON.info}<div>${esc(food.note)}</div></div>` : ''}
     <div id="amount"></div>
+    <p class="section-footer">${food.free ? 'Free food. ' : `${fmt(food.netCarbs)} g carbs per ${esc(food.serving.label)}${food.per100g != null ? ` · ${fmt(food.per100g)} g per 100 g` : ''}. `}${sourceDetail(food)}</p>
     <div class="sheet-actions">
       <button class="btn btn-primary" id="line-save">Update</button>
       <button class="btn btn-danger" id="line-remove">Remove from meal</button>
@@ -1427,12 +1443,15 @@ function switchTab(tab) {
   }
   if (tab === 'settings') renderSettings();
   if (tab === 'foods') renderFoods();
+  if (tab === 'home') renderHome();
   if (tray.expanded) setTrayExpanded(false);
+  renderTray();
   scrollTo(0, state.scroll[tab] || 0);
 }
 
 const actions = {
   'close-sheet': () => closeSheet(),
+  'start-meal': () => switchTab('foods'),
   manual: openManual,
   barcode: openBarcode,
   calculate: () => openDose(),
@@ -1478,7 +1497,6 @@ function initEvents() {
     }
   });
 
-  $('#meal-search').addEventListener('input', (e) => { state.mealQuery = e.target.value; renderMealResults(); });
   $('#foods-search').addEventListener('input', (e) => { state.foodsQuery = e.target.value; renderFoods(); });
 
   document.addEventListener('visibilitychange', async () => {
@@ -1499,10 +1517,10 @@ async function boot() {
   initTray();
   initSheet();
   renderTray();
-  renderMealResults();
+  renderHome();
   await Promise.all([loadSettings(), loadAllFoods()]);
   renderSetupBanner();
-  renderMealResults();
+  renderHome();
   renderFoods();
   renderSettings();
   renderCgmCard();

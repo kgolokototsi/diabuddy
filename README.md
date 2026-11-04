@@ -13,15 +13,17 @@ A carb counter and insulin dose calculator for the family. Pick what he's eating
    - **Android:** Chrome → ⋮ → *Add to Home screen*
    
    It then works like an app, and it works without signal after the first open.
-2. On **Meal**, tap each food he's eating. Each tap adds one serving.
-3. Open the tray at the bottom to change amounts: use − / + for half servings, or tap a food to enter grams.
-4. Tap **Calculate dose** and enter his BG in mmol/L. The dose is rounded to the nearest 0.5 unit.
+2. **Home** has two big choices:
+   - **Meal dose:** opens **Foods**, the one place for every food. His usual foods are listed first. Tap each food he's eating; each tap adds one serving.
+   - **BG correction:** for a high BG when he isn't eating. Enter his BG and you get the correction.
+3. Open the meal tray at the bottom of Foods to change amounts: use − / + for half servings, or tap a food to enter grams.
+4. Tap **Work out dose** and enter his BG in mmol/L. The dose is rounded to the nearest 0.5 unit.
 
 Other things you can do:
 
 - **Carbs from a label:** type the carbs from a packet, either the total or per 100 g plus the grams eaten.
 - **Barcode:** find a packaged product by its barcode. On Android you can scan with the camera.
-- **BG correction only:** works out a correction for a high BG when he isn't eating.
+- **Meal so far:** if you leave Foods partway through a meal, Home shows it so you can carry on.
 - **Insulin in the last 3 hours:** switch this on if he's had insulin recently. DiaBuddy then leaves out the high-BG correction so doses don't stack.
 - If his BG is **below 4.0**, DiaBuddy won't show a dose. Treat the low first.
 

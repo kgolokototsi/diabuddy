@@ -15,26 +15,49 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="preload" href="fonts/nunito-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <div class="app">
-    <!-- Meal -->
-    <main class="screen" id="screen-meal" data-screen="meal">
+    <!-- Home -->
+    <main class="screen" id="screen-home" data-screen="home">
       <header class="nav">
         <p class="eyebrow">DiaBuddy</p>
         <h1 class="large-title" id="greeting">Hello 👋</h1>
-        <p class="greeting-sub" id="greeting-sub">Let’s count what he’s eating</p>
+        <p class="greeting-sub">What would you like to do?</p>
       </header>
       <div id="setup-banner"></div>
       <div id="cgm-card"></div>
+      <div class="home-actions">
+        <button class="home-tile tile-meal" data-action="start-meal">
+          <span class="tile-emoji" aria-hidden="true">🍽️</span>
+          <span class="tile-text"><span class="tile-title">Meal dose</span><span class="tile-sub">Pick what he’s eating, then work out the dose</span></span>
+          <svg class="tile-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+        <button class="home-tile tile-bg" data-action="correction">
+          <span class="tile-emoji" aria-hidden="true">💧</span>
+          <span class="tile-text"><span class="tile-title">BG correction</span><span class="tile-sub">His BG is high and he isn’t eating</span></span>
+          <svg class="tile-chevron" aria-hidden="true" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg>
+        </button>
+      </div>
+      <div id="home-meal"></div>
+    </main>
+
+    <!-- Foods: the one place for every food -->
+    <main class="screen" id="screen-foods" data-screen="foods" hidden>
+      <header class="nav">
+        <p class="eyebrow">DiaBuddy</p>
+        <h1 class="large-title">Foods</h1>
+        <p class="greeting-sub" id="foods-sub">Tap what he’s eating</p>
+      </header>
       <div class="search-bar">
         <label class="search">
           <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="meal-search" type="search" placeholder="What’s on his plate?" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
+          <input id="foods-search" type="search" placeholder="What’s on his plate?" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search foods">
         </label>
       </div>
+      <div class="chips" id="foods-chips" role="tablist" aria-label="Show"></div>
       <div class="quick-actions">
         <button class="pill-button" data-action="manual">
           <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>
@@ -44,29 +67,8 @@
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>
           Barcode
         </button>
-        <button class="pill-button" data-action="correction">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/></svg>
-          BG correction only
-        </button>
+        <span id="foods-admin"></span>
       </div>
-      <div id="meal-results"></div>
-    </main>
-
-    <!-- Foods -->
-    <main class="screen" id="screen-foods" data-screen="foods" hidden>
-      <header class="nav">
-        <p class="eyebrow">DiaBuddy</p>
-        <h1 class="large-title">Foods</h1>
-        <p class="greeting-sub">Everything we know the carbs for</p>
-      </header>
-      <div class="search-bar">
-        <label class="search">
-          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-          <input id="foods-search" type="search" placeholder="Search all foods" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search">
-        </label>
-      </div>
-      <div class="chips" id="foods-chips" role="tablist" aria-label="Category"></div>
-      <div id="foods-admin"></div>
       <div id="foods-results"></div>
     </main>
 
@@ -98,9 +100,9 @@
   <div class="tray-scrim" id="tray-scrim"></div>
 
   <nav class="tabbar" aria-label="Sections">
-    <button class="tab" data-tab="meal" aria-current="page">
-      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 3v8a2 2 0 0 0 2 2v8M11 3v8a2 2 0 0 1-2 2M9 3v6M17 21V3c-2 1-3 4-3 8h3"/></svg>
-      <span>Meal</span>
+    <button class="tab" data-tab="home" aria-current="page">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1v-7.5Z"/></svg>
+      <span>Home</span>
     </button>
     <button class="tab" data-tab="foods">
       <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 7c-1.5-2-5-2.2-6.5.5S5 15 7 18s3.5 3 5 2c1.5 1 3 1 5-2s3-8 1.5-10.5S13.5 5 12 7Z"/><path d="M12 7c0-2 1-3.5 3-4"/></svg>
