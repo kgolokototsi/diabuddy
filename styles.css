@@ -369,7 +369,8 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 .trend { position: relative; padding: 0 16px 12px; }
 .trend::before { content: ""; position: absolute; top: 0; left: 16px; right: 0; border-top: 0.5px solid var(--sep); }
 .trend-chart { display: block; width: 100%; height: auto; margin-top: 10px; overflow: visible; }
-.trend-band { fill: var(--green-soft); }
+.trend-chart { stroke: none; }
+.trend-band { fill: var(--green-soft); stroke: none; }
 .trend-low { stroke: var(--red); stroke-width: 1; stroke-dasharray: 3 4; opacity: 0.55; }
 .trend-chart polyline { fill: none; stroke: var(--tint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .trend-chart circle { fill: var(--tint); stroke: var(--card); stroke-width: 2; }

@@ -308,7 +308,11 @@ function renderCgmCard() {
   const stale = r.ageMinutes > FRESH_MINUTES;
   const lowThreshold = state.settings?.hypoThreshold ?? 4;
   const tone = r.low || r.mmol < lowThreshold ? 'cgm-low' : stale ? 'cgm-stale' : '';
-  el.innerHTML = section(null, `<button class="row cgm-row ${tone}" data-action="cgm-refresh" aria-label="${sourceName(r)} ${readingValue(r)} mmol/L, ${esc(r.trendText)}, ${readingAge(r)}. Tap to refresh.">
+  // A fresh low reading gets a plain warning, not just a red number.
+  const lowBanner = !stale && (r.low || r.mmol < lowThreshold)
+    ? `<div class="banner banner-danger" role="alert">${ICON.drop}<div><strong>${sourceName(r)} shows ${readingValue(r)}. That’s low.</strong>Check with a finger-prick and treat the low first. Don’t give insulin now.</div></div>`
+    : '';
+  el.innerHTML = lowBanner + section(null, `<button class="row cgm-row ${tone}" data-action="cgm-refresh" aria-label="${sourceName(r)} ${readingValue(r)} mmol/L, ${esc(r.trendText)}, ${readingAge(r)}. Tap to refresh.">
     <span class="cgm-value">${readingValue(r)}<span class="cgm-arrow" aria-hidden="true">${r.arrow}</span></span>
     <span class="row-main"><span class="row-title">mmol/L · ${esc(r.trendText)}</span>
       <span class="row-sub">${sourceName(r)} · ${readingAge(r)}${stale ? ' · too old to use for a dose' : ''}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
