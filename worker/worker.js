@@ -72,7 +72,7 @@ async function dexcomLogin(env) {
 }
 
 async function dexcomLatest(env) {
-  const read = (sid) => dexcomPost(env, `/Publisher/ReadPublisherLatestGlucoseValues?sessionId=${encodeURIComponent(sid)}&minutes=1440&maxCount=1`);
+  const read = (sid) => dexcomPost(env, `/Publisher/ReadPublisherLatestGlucoseValues?sessionId=${encodeURIComponent(sid)}&minutes=1440&maxCount=7`);
   try {
     if (!dexcomSession) dexcomSession = await dexcomLogin(env);
     let values;
@@ -86,7 +86,9 @@ async function dexcomLatest(env) {
     const v = Array.isArray(values) ? values[0] : null;
     if (!v) throw Object.assign(new Error('No Dexcom readings'), { code: 'no_readings' });
     const trend = typeof v.Trend === 'number' ? DEXCOM_TRENDS[v.Trend] : v.Trend;
-    return { source: 'dexcom', mgdl: Number(v.Value), time: Number(/\d+/.exec(v.WT || v.ST || '')?.[0]), trend };
+    const when = (x) => Number(/\d+/.exec(x.WT || x.ST || '')?.[0]);
+    const history = values.map((x) => ({ mgdl: Number(x.Value), time: when(x) }));
+    return { source: 'dexcom', mgdl: Number(v.Value), time: when(v), trend, history };
   } catch (err) {
     dexcomSession = null;
     const badLogin = /AccountPassword|AccountNotFound|SSO_Authenticate/i.test(err.code || '');
@@ -179,12 +181,14 @@ async function libreLatest(env) {
     if (!people.length) throw Object.assign(new Error('No LibreLinkUp connection'), { code: 'no_connection' });
     const g = people[0].glucoseMeasurement || people[0].glucoseItem;
     if (!g) throw Object.assign(new Error('No Libre readings'), { code: 'no_readings' });
-    return {
-      source: 'libre',
-      mgdl: Number(g.ValueInMgPerDl ?? g.Value),
-      time: parseLibreTime(g.FactoryTimestamp || g.Timestamp),
-      trend: LIBRE_TRENDS[g.TrendArrow] || null,
-    };
+    const point = (x) => ({ mgdl: Number(x.ValueInMgPerDl ?? x.Value), time: parseLibreTime(x.FactoryTimestamp || x.Timestamp) });
+    // History comes from the graph; if that fails we still have the latest reading.
+    let history = [];
+    try {
+      const graph = await libreRequest(libre.base, `/llu/connections/${encodeURIComponent(people[0].patientId)}/graph`, { token: libre.token, accountId: libre.accountId });
+      history = (graph?.data?.graphData || []).map(point);
+    } catch {}
+    return { source: 'libre', ...point(g), trend: LIBRE_TRENDS[g.TrendArrow] || null, history: [...history, point(g)] };
   } catch (err) {
     if (err.code !== 'accept_terms' && err.code !== 'login_failed') libre = null;
     throw Object.assign(err, { code: err.code || 'unavailable' });
@@ -282,6 +286,12 @@ export default {
     }
     const now = Date.now();
     readings.sort((a, b) => b.time - a.time);
-    return json({ readings: readings.map((r) => toReading(r, now)), sources: status }, 200, cors);
+    // The newest sensor's readings from the last 30 minutes, oldest first.
+    const history = (readings[0].history || [])
+      .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 30 * 60000)
+      .sort((a, b) => a.time - b.time)
+      .filter((p, i, all) => i === 0 || p.time !== all[i - 1].time)
+      .map((p) => ({ mmol: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10, time: new Date(p.time).toISOString() }));
+    return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history, sources: status }, 200, cors);
   },
 };
