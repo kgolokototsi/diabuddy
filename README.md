@@ -128,6 +128,21 @@ If LibreLinkUp later asks the follower account to accept new terms, readings sto
 
 > LibreLinkUp, like Dexcom Share, isn't officially offered for other apps to use, so it can stop working without warning. If it does, the app says so and you type the BG as before.
 
+## Photo of a label
+
+On **Foods**, tap **Photo of label** and take a picture of the nutrition table on a packet. DiaBuddy reads the carbohydrate per 100 g and the serving size, then shows them next to your photo for checking. Fix anything that doesn't match the packet, then tap one of:
+- **Save to family foods:** every family phone gets it.
+- **Use for this meal only:** it's added to this meal and not saved.
+
+The relay reads the label with Claude (Anthropic's AI), using the family relay. It only copies printed numbers. If something isn't legible it leaves the field empty rather than guessing. It also takes fibre off US-style "total carbohydrate" labels, so the numbers match DiaBuddy's net carbs.
+
+**Set-up (admin, once):** create an API key at https://console.anthropic.com → **API Keys**, then add it to the relay as a secret:
+```powershell
+cd diabuddyworker
+node node_moduleswranglerinwrangler.js secret put ANTHROPIC_API_KEY
+```
+Each photo costs roughly one or two US cents. The relay allows 60 photos a day, so a leaked family link can't run up the bill.
+
 ## His log
 
 After **Work out dose**, the **Did you give it?** step records what he actually had:

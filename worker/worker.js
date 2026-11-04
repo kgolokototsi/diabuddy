@@ -13,9 +13,13 @@
 //   DEXCOM_PASSWORD  that account's password
 //   LIBRE_EMAIL      a LibreLinkUp follower account that his LibreLink app shares with
 //   LIBRE_PASSWORD   that follower account's password
+//   ANTHROPIC_API_KEY optional; turns on "Photo of label" (reads nutrition tables with Claude)
 // Plain variables:
 //   DEXCOM_REGION    "ous" (outside the US – South Africa), "us" or "jp". Default "ous".
 //   ALLOWED_ORIGIN   https://kgolokototsi.github.io
+
+import Anthropic from '@anthropic-ai/sdk';
+import { readLabel } from './label.js';
 
 const MGDL_PER_MMOL = 18.0182;
 
@@ -409,6 +413,96 @@ async function handleEvents(request, env, url, cors, canWrite) {
   return json({ error: 'not_found' }, 404, cors);
 }
 
+// ---------------------------------------------------------------- label photos
+
+const SCANS_PER_DAY = 60; // keeps a leaked family link from running up the API bill
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+async function handleScan(request, env, cors) {
+  if (!env.ANTHROPIC_API_KEY) return json({ error: 'scan_not_configured' }, 503, cors);
+  const text = await request.text();
+  if (text.length > 7_000_000) return json({ error: 'photo_too_large' }, 413, cors);
+  let body;
+  try { body = JSON.parse(text); } catch { return json({ error: 'bad_json' }, 400, cors); }
+  if (typeof body.image !== 'string' || !body.image || !IMAGE_TYPES.includes(body.mediaType)) return json({ error: 'bad_photo' }, 400, cors);
+
+  if (env.LOG) {
+    const key = `scans:${new Date().toISOString().slice(0, 10)}`;
+    const used = Number(await env.LOG.get(key)) || 0;
+    if (used >= SCANS_PER_DAY) return json({ error: 'scan_limit' }, 429, cors);
+    await env.LOG.put(key, String(used + 1), { expirationTtl: 3 * 24 * 3600 });
+  }
+
+  try {
+    const label = await readLabel(env, { image: body.image, mediaType: body.mediaType });
+    return json({ label }, 200, cors);
+  } catch (err) {
+    if (err.code) return json({ error: err.code }, 422, cors);
+    if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return json({ error: 'scan_bad_api_key' }, 502, cors);
+    if (err instanceof Anthropic.RateLimitError) return json({ error: 'scan_busy' }, 503, cors);
+    if (err instanceof Anthropic.BadRequestError) return json({ error: 'bad_photo' }, 400, cors);
+    return json({ error: 'scan_unavailable' }, 502, cors);
+  }
+}
+
+// ---------------------------------------------------------------- shared family foods
+
+// Foods any family phone can add (label photos, home recipes). One key per food.
+function cleanFood(body, now = Date.now()) {
+  if (!body || typeof body !== 'object') return null;
+  const name = str(body.name, 80)?.trim();
+  const label = str(body.serving?.label, 60)?.trim();
+  const netCarbs = num(body.netCarbs, 0, 500);
+  if (!name || !label || netCarbs == null) return null;
+  const grams = num(body.serving?.grams, 0.1, 5000);
+  return {
+    id: /^fam-[a-z0-9-]{3,60}$/.test(body.id) ? body.id : `fam-${Math.random().toString(36).slice(2, 12)}`,
+    name,
+    category: str(body.category, 40) || 'Snacks',
+    serving: { label, grams },
+    netCarbs,
+    per100g: num(body.per100g, 0, 100),
+    note: str(body.note, 200),
+    barcode: /^\d{8,14}$/.test(body.barcode || '') ? body.barcode : null,
+    fromPhoto: body.fromPhoto === true,
+    addedBy: str(body.addedBy, 40),
+    addedAt: new Date(now).toISOString(),
+  };
+}
+
+async function handleFoods(request, env, url, cors, canWrite) {
+  if (!env.LOG) return json({ error: 'log_unavailable' }, 503, cors);
+  if (request.method === 'GET') {
+    const keys = [];
+    let cursor;
+    do {
+      const page = await env.LOG.list({ prefix: 'food:', cursor });
+      keys.push(...page.keys.map((k) => k.name));
+      cursor = page.list_complete ? null : page.cursor;
+    } while (cursor);
+    const foods = (await Promise.all(keys.map((k) => env.LOG.get(k, 'json')))).filter(Boolean);
+    return json({ foods: foods.sort((a, b) => a.name.localeCompare(b.name)) }, 200, cors);
+  }
+  if (!canWrite) return json({ error: 'read_only_key' }, 403, cors);
+  if (request.method === 'POST') {
+    const text = await request.text();
+    if (text.length > 8000) return json({ error: 'too_large' }, 413, cors);
+    let body;
+    try { body = JSON.parse(text); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const food = cleanFood(body);
+    if (!food) return json({ error: 'bad_food' }, 400, cors);
+    await env.LOG.put(`food:${food.id}`, JSON.stringify(food));
+    return json({ food }, 201, cors);
+  }
+  if (request.method === 'DELETE') {
+    const id = url.pathname.split('/')[2] || '';
+    if (!/^fam-[a-z0-9-]{3,60}$/.test(id)) return json({ error: 'bad_id' }, 400, cors);
+    await env.LOG.delete(`food:${id}`);
+    return json({ deleted: id }, 200, cors);
+  }
+  return json({ error: 'not_found' }, 404, cors);
+}
+
 // ---------------------------------------------------------------- entry point
 
 export default {
@@ -418,7 +512,9 @@ export default {
 
     const url = new URL(request.url);
     const isEvents = url.pathname === '/events' || url.pathname.startsWith('/events/');
-    if (!(url.pathname === '/latest' && request.method === 'GET') && !isEvents) return json({ error: 'not_found' }, 404, cors);
+    const isFoods = url.pathname === '/foods' || url.pathname.startsWith('/foods/');
+    const isScan = url.pathname === '/scan-label' && request.method === 'POST';
+    if (!(url.pathname === '/latest' && request.method === 'GET') && !isEvents && !isFoods && !isScan) return json({ error: 'not_found' }, 404, cors);
 
     const keys = [env.FAMILY_KEY, env.TV_KEY].filter(Boolean);
     if (!keys.length || !setUpSources(env).length) return json({ error: 'not_configured' }, 500, cors);
@@ -427,8 +523,11 @@ export default {
     const matches = keys.map((k) => safeEqual(given, k));
     if (!matches.includes(true)) return json({ error: 'bad_key' }, 401, cors);
 
-    // Only the family key may add or remove log entries; a TV key can read.
-    if (isEvents) return handleEvents(request, env, url, cors, Boolean(env.FAMILY_KEY) && safeEqual(given, env.FAMILY_KEY));
+    // Only the family key may add or remove log entries, foods or scan photos; a TV key can read.
+    const isFamily = Boolean(env.FAMILY_KEY) && safeEqual(given, env.FAMILY_KEY);
+    if (isEvents) return handleEvents(request, env, url, cors, isFamily);
+    if (isFoods) return handleFoods(request, env, url, cors, isFamily);
+    if (isScan) return isFamily ? handleScan(request, env, cors) : json({ error: 'read_only_key' }, 403, cors);
 
     const { readings, status } = await readSensors(env);
     if (!readings.length) {

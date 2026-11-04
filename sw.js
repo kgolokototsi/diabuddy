@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION when shipping changes to the app shell.
-const VERSION = 'diabuddy-v11';
+const VERSION = 'diabuddy-v12';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'admin.js', 'spring.js', 'config.js', 'cgm.js', 'fonts/inter-latin.woff2',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'data/foods.json',

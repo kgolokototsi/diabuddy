@@ -56,6 +56,8 @@ const state = {
   meal: [],
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
+  githubFoods: [],
+  relayFoods: store.get('relay-foods', []),
   foodsQuery: '',
   category: null,
   scroll: {},
@@ -96,17 +98,35 @@ async function loadSettings() {
   return JSON.stringify(state.settings) !== before;
 }
 
+// Family foods come from two places: the admin's GitHub file (older) and the relay,
+// where any family phone can add them (label photos, home recipes).
+function setCustomFoods() {
+  state.custom = [...state.relayFoods, ...state.githubFoods];
+  store.set('custom', state.custom);
+  indexFoods(state.custom);
+}
+
 async function loadAllFoods() {
-  const cachedCustom = store.get('custom', []);
   try {
     const { base, custom } = await loadFoods();
     state.base = base;
-    state.custom = custom.map((f) => ({ ...f, source: 'custom' }));
-    store.set('custom', state.custom);
+    state.githubFoods = custom.map((f) => ({ ...f, source: 'custom' }));
+    setCustomFoods();
   } catch {
-    state.custom = cachedCustom;
+    state.custom = store.get('custom', []);
   }
   indexFoods(allLocalFoods());
+}
+
+async function loadRelayFoods() {
+  if (!cgmReady()) return;
+  try {
+    const { foods } = await relayFetch(cgmUrl(), '/foods');
+    state.relayFoods = foods.map((f) => ({ ...f, source: 'custom', relay: true }));
+    store.set('relay-foods', state.relayFoods);
+    setCustomFoods();
+    refreshRows();
+  } catch {}
 }
 
 function ensurePackaged() {
@@ -540,7 +560,7 @@ function renderFoods() {
     .filter(([key]) => key !== 'Family' || state.custom.length)
     .map(([key, label]) => `<button class="chip" role="tab" data-cat="${esc(key)}" aria-selected="${view === key}">${esc(label)}</button>`)
     .join('');
-  $('#foods-admin').innerHTML = isAdmin()
+  $('#foods-admin').innerHTML = isAdmin() || cgmReady()
     ? `<button class="pill-button" data-action="add-family-food">${ICON.plus} Add a family food</button>`
     : '';
 
@@ -999,8 +1019,8 @@ function openFoodDetail(food) {
     <div id="amount"></div>
     <div class="sheet-actions">
       <button class="btn btn-primary" id="detail-add">${inMeal ? 'Add more to meal' : 'Add to meal'}</button>
-      ${isAdmin() && food.source === 'off' ? '<button class="btn btn-secondary" id="detail-save">Save to family foods</button>' : ''}
-      ${isAdmin() && food.source === 'custom' ? '<button class="btn btn-danger" id="detail-remove">Remove from family foods</button>' : ''}
+      ${(isAdmin() || cgmReady()) && food.source === 'off' ? '<button class="btn btn-secondary" id="detail-save">Save to family foods</button>' : ''}
+      ${food.source === 'custom' && (food.relay ? cgmReady() : isAdmin()) ? '<button class="btn btn-danger" id="detail-remove">Remove from family foods</button>' : ''}
     </div>`, {
     onMount(root) {
       const getServings = mountAmount($('#amount', root), food, 1, null, { askGrams: food.source === 'off' });
@@ -1087,6 +1107,159 @@ function openManual() {
           source: 'manual',
         });
         closeSheet();
+      });
+    },
+  });
+}
+
+// ---------------------------------------------------------------- Label photo
+
+function openPhotoLabel() {
+  if (!cgmReady()) { toast('Label photos need the family link. Open it on this phone first.'); return; }
+  const picker = document.createElement('input');
+  picker.type = 'file';
+  picker.accept = 'image/*';
+  picker.setAttribute('capture', 'environment');
+  picker.addEventListener('change', () => { if (picker.files?.[0]) scanLabel(picker.files[0]); }, { once: true });
+  picker.click();
+}
+
+// Phone photos are large; 1568 px on the long side is plenty for reading a table.
+async function shrinkPhoto(file, maxSide = 1568) {
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close?.();
+  const url = canvas.toDataURL('image/jpeg', 0.85);
+  return { url, data: url.slice(url.indexOf(',') + 1), mediaType: 'image/jpeg' };
+}
+
+async function scanLabel(file) {
+  openSheet(`
+    ${sheetHeader('Reading the label…', 'This takes a few seconds.')}
+    <img class="label-photo" id="scan-preview" alt="Your photo of the label" hidden>
+    ${loadingRow('Looking at the nutrition table…')}`);
+  let photo;
+  try {
+    photo = await shrinkPhoto(file);
+    const preview = $('#scan-preview');
+    if (preview) { preview.src = photo.url; preview.hidden = false; }
+    const { label } = await relayFetch(cgmUrl(), '/scan-label', { method: 'POST', body: { image: photo.data, mediaType: photo.mediaType }, timeoutMs: 90000 });
+    if (sheet.open) openLabelReview(label, photo.url);
+  } catch (err) {
+    if (!sheet.open) return;
+    openSheet(`
+      ${sheetHeader('Couldn’t read the label')}
+      ${photo ? `<img class="label-photo" src="${photo.url}" alt="Your photo of the label">` : ''}
+      <div class="banner banner-warn">${ICON.warn}<div>${esc(err.name === 'AbortError' ? 'No answer from the label reader. Check your signal and try again.' : err.message)}</div></div>
+      <div class="sheet-actions">
+        <button class="btn btn-primary" data-action="photo-label">Try another photo</button>
+        <button class="btn btn-secondary" data-action="manual">Type the carbs in instead</button>
+      </div>`);
+  }
+}
+
+function openLabelReview(label, photoUrl) {
+  if (!label.is_nutrition_label) {
+    openSheet(`
+      ${sheetHeader('That doesn’t look like a nutrition table')}
+      <img class="label-photo" src="${photoUrl}" alt="Your photo">
+      ${label.notes ? `<div class="banner banner-info">${ICON.info}<div>${esc(label.notes)}</div></div>` : ''}
+      <div class="sheet-actions">
+        <button class="btn btn-primary" data-action="photo-label">Try another photo</button>
+        <button class="btn btn-secondary" data-action="manual">Type the carbs in instead</button>
+      </div>`);
+    return;
+  }
+
+  // DiaBuddy counts carbs without fibre. US-style "total carbohydrate" includes it, so take it off.
+  let per100 = label.carbs_per_100g;
+  let fibreNote = '';
+  if (per100 != null && label.carbs_excludes_fibre === false && label.fibre_per_100g != null) {
+    per100 = Math.max(0, Math.round((per100 - label.fibre_per_100g) * 10) / 10);
+    fibreNote = `Fibre (${fmt(label.fibre_per_100g)} g) taken off the label’s total carbohydrate.`;
+  }
+  const grams = label.serving_size_grams;
+  const perServing = per100 != null && grams ? Math.round(per100 * grams) / 100 : label.carbs_per_serving;
+  const servingLabel = label.serving_size_label || (grams ? `${fmt(grams, 0)} g` : per100 != null ? '100 g' : '');
+  const servingGrams = grams || (!label.serving_size_label && per100 != null ? 100 : null);
+  const servingCarbs = grams ? perServing : !label.serving_size_label && per100 != null ? per100 : perServing;
+  const name = [label.product_name, label.brand].filter(Boolean).filter((v, i, a) => i === 0 || !a[0].toLowerCase().includes(v.toLowerCase())).join(' – ');
+  const unsure = label.confidence === 'low' ? '<strong>The reader wasn’t sure about this photo.</strong> Look extra carefully. ' : '';
+
+  openSheet(`
+    ${sheetHeader('Check the label', 'Compare every number with the packet.')}
+    <img class="label-photo" src="${photoUrl}" alt="Your photo of the label">
+    <div class="banner banner-warn">${ICON.warn}<div>${unsure}These numbers are used for his insulin, so check them against the packet before saving.${label.notes ? ` ${esc(label.notes)}` : ''}</div></div>
+    <section class="section"><div class="group">
+      <div class="row field-row"><label for="lr-name">Name</label><input id="lr-name" class="wide" value="${esc(name)}" placeholder="What is it?" autocomplete="off"></div>
+      <div class="row field-row"><label for="lr-cat">Group</label><select id="lr-cat" class="wide">${CATEGORIES.map((c) => `<option ${c === 'Snacks' ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></div>
+      <div class="row field-row"><label for="lr-100">Carbs per 100 g</label><input id="lr-100" inputmode="decimal" value="${per100 ?? ''}" placeholder="–" style="width:4.5rem"><span class="unit">g</span></div>
+      <div class="row field-row"><label for="lr-serving">Serving</label><input id="lr-serving" class="wide" value="${esc(servingLabel)}" placeholder="e.g. 2 biscuits" autocomplete="off"></div>
+      <div class="row field-row"><label for="lr-grams">Serving weight</label><input id="lr-grams" inputmode="decimal" value="${servingGrams ?? ''}" placeholder="–" style="width:4.5rem"><span class="unit">g</span></div>
+      <div class="row field-row"><label for="lr-carbs">Carbs per serving</label><input id="lr-carbs" inputmode="decimal" value="${servingCarbs != null ? fmt(servingCarbs) : ''}" placeholder="0" style="width:4.5rem"><span class="unit">g</span></div>
+    </div><p class="section-footer">${esc(fibreNote || 'Carbs per serving updates when you change the weight.')}</p><p class="field-error" id="lr-error" hidden></p></section>
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="lr-save">Save to family foods</button>
+      <button class="btn btn-secondary" id="lr-meal">Use for this meal only</button>
+    </div>`, {
+    onMount(root) {
+      let carbsEdited = false;
+      const recalc = () => {
+        const p100 = num($('#lr-100', root).value);
+        const g = num($('#lr-grams', root).value);
+        if (!carbsEdited && p100 != null && g) $('#lr-carbs', root).value = fmt((p100 * g) / 100);
+      };
+      root.addEventListener('input', (e) => {
+        if (e.target.id === 'lr-carbs') carbsEdited = true;
+        if (e.target.id === 'lr-100' || e.target.id === 'lr-grams') recalc();
+      });
+      const collect = () => {
+        const food = {
+          name: $('#lr-name', root).value.trim(),
+          category: $('#lr-cat', root).value,
+          serving: { label: $('#lr-serving', root).value.trim(), grams: num($('#lr-grams', root).value) || null },
+          netCarbs: num($('#lr-carbs', root).value),
+          per100g: num($('#lr-100', root).value),
+          note: fibreNote || null,
+          fromPhoto: true,
+        };
+        const problem = !food.name ? 'Give it a name.' : !food.serving.label ? 'Describe the serving.'
+          : food.netCarbs == null || food.netCarbs < 0 || food.netCarbs > 300 ? 'Enter the carbs per serving.' : '';
+        const err = $('#lr-error', root);
+        err.hidden = !problem;
+        err.textContent = problem;
+        return problem ? null : { ...food, netCarbs: Math.round(food.netCarbs * 10) / 10 };
+      };
+      $('#lr-meal', root).addEventListener('click', () => {
+        const food = collect();
+        if (!food) return;
+        addToMeal({ ...food, id: `photo-${Date.now().toString(36)}`, source: 'manual' });
+        closeSheet();
+        toast(`Added ${food.name}. Change the amount in the meal tray.`);
+      });
+      $('#lr-save', root).addEventListener('click', async (e) => {
+        const food = collect();
+        if (!food) return;
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = 'Saving…';
+        try {
+          await saveFamilyFood({ ...food, id: `fam-${Date.now().toString(36)}` });
+          closeSheet();
+          refreshRows();
+          const saved = state.relayFoods.find((f) => f.name === food.name) || state.custom.find((f) => f.name === food.name);
+          toast(`Saved ${food.name} for everyone`, saved ? { action: 'Add to meal', onAction: () => addToMeal(saved) } : {});
+        } catch (ex) {
+          btn.disabled = false;
+          btn.textContent = 'Save to family foods';
+          const err = $('#lr-error', root);
+          err.hidden = false;
+          err.textContent = ex.message;
+        }
       });
     },
   });
@@ -1523,12 +1696,7 @@ function openFamilyFoodForm(prefill = null) {
         btn.disabled = true;
         btn.textContent = 'Saving…';
         try {
-          const { data } = await readShared('data/foods-custom.json');
-          const foods = [...(data.foods || []), food];
-          await writeShared('data/foods-custom.json', { foods }, `Add family food: ${name}`);
-          state.custom = foods.map((f) => ({ ...f, source: 'custom' }));
-          store.set('custom', state.custom);
-          indexFoods(state.custom);
+          await saveFamilyFood(food);
           closeSheet();
           refreshRows();
           toast(`Saved ${name}`);
@@ -1543,14 +1711,35 @@ function openFamilyFoodForm(prefill = null) {
   });
 }
 
+// The relay when it's set up (any family phone), otherwise the admin's GitHub file.
+async function saveFamilyFood(food) {
+  if (cgmReady()) {
+    const { food: saved } = await relayFetch(cgmUrl(), '/foods', { method: 'POST', body: { ...food, addedBy: deviceId } });
+    state.relayFoods = [...state.relayFoods.filter((f) => f.id !== saved.id), { ...saved, source: 'custom', relay: true }];
+    store.set('relay-foods', state.relayFoods);
+  } else {
+    const { data } = await readShared('data/foods-custom.json');
+    const foods = [...(data.foods || []), food];
+    await writeShared('data/foods-custom.json', { foods }, `Add family food: ${food.name}`);
+    state.githubFoods = foods.map((f) => ({ ...f, source: 'custom' }));
+  }
+  setCustomFoods();
+}
+
 async function removeFamilyFood(food, btn) {
   btn.disabled = true;
   try {
-    const { data } = await readShared('data/foods-custom.json');
-    const foods = (data.foods || []).filter((f) => f.id !== food.id);
-    await writeShared('data/foods-custom.json', { foods }, `Remove family food: ${food.name}`);
-    state.custom = foods.map((f) => ({ ...f, source: 'custom' }));
-    store.set('custom', state.custom);
+    if (food.relay) {
+      await relayFetch(cgmUrl(), `/foods/${food.id}`, { method: 'DELETE' });
+      state.relayFoods = state.relayFoods.filter((f) => f.id !== food.id);
+      store.set('relay-foods', state.relayFoods);
+    } else {
+      const { data } = await readShared('data/foods-custom.json');
+      const foods = (data.foods || []).filter((f) => f.id !== food.id);
+      await writeShared('data/foods-custom.json', { foods }, `Remove family food: ${food.name}`);
+      state.githubFoods = foods.map((f) => ({ ...f, source: 'custom' }));
+    }
+    setCustomFoods();
     closeSheet();
     refreshRows();
     toast(`Removed ${food.name}`);
@@ -1712,6 +1901,7 @@ const actions = {
   lock: () => { lock(); renderSettings(); renderFoods(); toast('Admin locked on this device'); },
   'edit-settings': openSettingsEditor,
   'add-family-food': () => openFamilyFoodForm(),
+  'photo-label': openPhotoLabel,
   'cgm-refresh': refreshCgm,
   'cgm-setup': openCgmSetup,
   'cgm-key': openCgmKeyEntry,
@@ -1757,6 +1947,7 @@ function initEvents() {
     if (await loadSettings()) { renderSettings(); renderSetupBanner(); }
     refreshCgm();
     loadTodayLog();
+    loadRelayFoods();
   });
 }
 
@@ -1779,6 +1970,7 @@ async function boot() {
   renderCgmCard();
   refreshCgm();
   loadTodayLog();
+  loadRelayFoods();
   addEventListener('online', () => loadTodayLog());
   if (linked) toast(cgmUrl() ? 'His glucose readings are on this phone now' : 'Family key saved');
   // The family link opened in a tab where DiaBuddy is already running.

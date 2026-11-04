@@ -11,6 +11,8 @@ const bothEnv = { ...dexEnv, ...libreEnv };
 let calls;
 let dexcom;
 let libre;
+let claude;
+let claudeCalls = [];
 
 // "M/D/YYYY h:mm:ss AM" in UTC, like LibreLinkUp's FactoryTimestamp.
 function lluTime(ms) {
@@ -27,6 +29,13 @@ globalThis.fetch = async (url, init = {}) => {
   const reply = (status, data) => new Response(JSON.stringify(data), { status });
   calls.push(`${u.host}${u.pathname}`);
 
+  if (u.host === 'api.anthropic.com') {
+    claudeCalls.push(body);
+    const jsonReply = (status, data) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
+    if (claude.status !== 200) return jsonReply(claude.status, { type: 'error', error: { type: claude.errorType, message: 'x' } });
+    return jsonReply(200, { id: 'msg_1', type: 'message', role: 'assistant', model: 'claude-opus-5-5', stop_reason: claude.stop, stop_sequence: null,
+      content: [{ type: 'text', text: JSON.stringify(claude.label) }], usage: { input_tokens: 1500, output_tokens: 200 } });
+  }
   if (u.host === 'shareous1.dexcom.com') {
     if (u.pathname.endsWith('AuthenticatePublisherAccount')) {
       return body.password === dexcom.password ? reply(200, 'acct-1') : reply(500, { Code: 'AccountPasswordInvalid', Message: 'bad' });
@@ -62,6 +71,11 @@ const get = (worker, env, key = env.FAMILY_KEY) =>
 
 beforeEach(() => {
   calls = [];
+  claudeCalls = [];
+  claude = { status: 200, stop: 'end_turn', errorType: null, label: {
+    is_nutrition_label: true, product_name: 'Weet-Bix', brand: 'Bokomo', carbs_per_100g: 63, carbs_per_serving: 28.4,
+    serving_size_label: '2 biscuits (45 g)', serving_size_grams: 45, carbs_excludes_fibre: true, fibre_per_100g: 11,
+    confidence: 'high', notes: '' } };
   const now = Date.now();
   dexcom = { password: 'pw', sessions: 0, expire: false, values: [{ WT: `Date(${now - 3 * 60000})`, Value: 142, Trend: 'FortyFiveUp' }] };
   libre = { password: 'lpw', terms: false, minimumVersion: '4.16.0', measurement: { ValueInMgPerDl: 110, TrendArrow: 3, FactoryTimestamp: lluTime(now - 60000) } };
@@ -299,4 +313,60 @@ test('relay still works with no KV bound', async () => {
   const w = await load();
   await runScheduled(w, libreEnv);
   assert.equal((await get(w, libreEnv)).status, 200);
+});
+
+const scan = (w, env, body = { image: 'aGVsbG8=', mediaType: 'image/jpeg' }, key = env.FAMILY_KEY) => w.fetch(new Request('https://relay.example/scan-label', {
+  method: 'POST', headers: { 'X-DiaBuddy-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+}), env);
+
+test('label scan: sends the photo to Claude Opus 5.5 with a schema and fallback, returns the printed numbers', async () => {
+  const w = await load();
+  const env = { ...libreEnv, LOG: memoryKv(), ANTHROPIC_API_KEY: 'sk-test' };
+  const res = await scan(w, env);
+  assert.equal(res.status, 200);
+  const { label } = await res.json();
+  assert.equal(label.carbs_per_100g, 63);
+  assert.equal(label.serving_size_grams, 45);
+  const sent = claudeCalls[0];
+  assert.equal(sent.model, 'claude-opus-5-5');
+  assert.equal(sent.fallbacks, 'default');
+  assert.equal(sent.output_config.format.type, 'json_schema');
+  assert.equal(sent.messages[0].content[0].source.data, 'aGVsbG8=');
+});
+
+test('label scan: family key only, needs an API key, rejects bad photos, caps daily use', async () => {
+  const w = await load();
+  const LOG = memoryKv();
+  const env = { ...libreEnv, TV_KEY: 'tv-key-456', LOG, ANTHROPIC_API_KEY: 'sk-test' };
+  assert.equal((await scan(w, env, undefined, 'tv-key-456')).status, 403);
+  assert.equal((await scan(w, { ...env, ANTHROPIC_API_KEY: undefined })).status, 503);
+  assert.equal((await scan(w, env, { image: 'x', mediaType: 'application/pdf' })).status, 400);
+  await LOG.put(`scans:${new Date().toISOString().slice(0, 10)}`, '60');
+  assert.equal((await (await scan(w, env)).json()).error, 'scan_limit');
+});
+
+test('label scan: API problems come back as clear errors', async () => {
+  const w = await load();
+  const env = { ...libreEnv, ANTHROPIC_API_KEY: 'sk-bad' };
+  claude.status = 401; claude.errorType = 'authentication_error';
+  assert.equal((await (await scan(w, env)).json()).error, 'scan_bad_api_key');
+  claude.status = 200; claude.stop = 'refusal';
+  assert.equal((await (await scan(w, env)).json()).error, 'label_refused');
+});
+
+test('family foods: any family phone can add and remove; TV key can only read', async () => {
+  const w = await load();
+  const env = { ...libreEnv, TV_KEY: 'tv-key-456', LOG: memoryKv() };
+  const req = (method, path, key, body) => w.fetch(new Request(`https://relay.example${path}`, {
+    method, headers: { 'X-DiaBuddy-Key': key, ...(body && { 'Content-Type': 'application/json' }) }, body: body && JSON.stringify(body),
+  }), env);
+  let res = await req('POST', '/foods', env.FAMILY_KEY, { name: 'Weet-Bix – Bokomo', category: 'Breakfast', serving: { label: '2 biscuits (45 g)', grams: 45 }, netCarbs: 28.4, per100g: 63, fromPhoto: true });
+  assert.equal(res.status, 201);
+  const { food } = await res.json();
+  assert.match(food.id, /^fam-/);
+  assert.equal((await req('POST', '/foods', 'tv-key-456', { name: 'x', serving: { label: '1' }, netCarbs: 1 })).status, 403);
+  assert.equal((await req('POST', '/foods', env.FAMILY_KEY, { name: 'No carbs given', serving: { label: '1' } })).status, 400);
+  assert.equal((await (await req('GET', '/foods', 'tv-key-456')).json()).foods[0].name, 'Weet-Bix – Bokomo');
+  assert.equal((await req('DELETE', `/foods/${food.id}`, env.FAMILY_KEY)).status, 200);
+  assert.equal((await (await req('GET', '/foods', env.FAMILY_KEY)).json()).foods.length, 0);
 });

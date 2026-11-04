@@ -43,6 +43,16 @@ const MESSAGES = {
   libre_unavailable: 'LibreLinkUp isn’t answering right now.',
   not_configured: 'The relay is missing its sensor login or family key.',
   read_only_key: 'This device can only view the log.',
+  scan_not_configured: 'Label photos aren’t switched on yet. The admin needs to add the label-reader key to the relay.',
+  scan_limit: 'That’s the limit of label photos for today. Type the carbs in instead.',
+  scan_bad_api_key: 'The label reader’s key was rejected. The admin needs to check it.',
+  scan_busy: 'The label reader is busy. Try again in a minute.',
+  scan_unavailable: 'The label reader isn’t answering. Try again, or type the carbs in.',
+  bad_photo: 'That photo couldn’t be read. Try another one.',
+  photo_too_large: 'That photo is too large. Try again.',
+  label_refused: 'The label reader couldn’t help with this photo. Type the carbs in instead.',
+  label_unreadable: 'The label couldn’t be read clearly. Try a sharper photo, straight on.',
+  bad_food: 'Fill in the name, serving and carbs.',
   log_unavailable: 'The log isn’t set up on the relay.',
 };
 
