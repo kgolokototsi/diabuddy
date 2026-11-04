@@ -3,7 +3,7 @@ import { loadFoods, searchFoods, loadPackaged, lookupBarcode, CATEGORIES, SOURCE
 import { readShared, writeShared, isAdmin, unlock, lock } from './admin.js';
 import { spring, project, rubberband, VelocityTracker } from './spring.js';
 import { REPO, APP_VERSION } from './config.js';
-import { getCgmKey, setCgmKey, consumeLinkKey, generateKey, familyLink, fetchLatest, usableForDose, FRESH_MINUTES } from './cgm.js';
+import { getCgmKey, setCgmKey, consumeLinkKey, generateKey, familyLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
 
 // ---------------------------------------------------------------- helpers
 
@@ -407,14 +407,121 @@ function renderSetupBanner() {
 function renderHome() {
   const el = $('#home-meal');
   const n = state.meal.length;
-  if (!n) { el.innerHTML = ''; return; }
   const names = state.meal.map((l) => l.food.name).slice(0, 3).join(', ') + (n > 3 ? ` and ${n - 3} more` : '');
-  el.innerHTML = section('🍽️ Meal so far', `
+  const meal = n ? section('🍽️ Meal so far', `
     <button class="row" data-action="start-meal">
       <span class="row-main"><span class="row-title">${fmt(mealCarbs())} g carbs · ${n} ${n === 1 ? 'food' : 'foods'}</span><span class="row-sub">${esc(names)}</span></span>
       ${ICON.chevron}
     </button>
-    <button class="row" data-action="calculate"><span class="row-main"><span class="row-title row-link">Work out dose</span></span>${ICON.chevron}</button>`);
+    <button class="row" data-action="calculate"><span class="row-main"><span class="row-title row-link">Work out dose</span></span>${ICON.chevron}</button>`) : '';
+  el.innerHTML = meal + todayLogHtml();
+}
+
+// ---------------------------------------------------------------- Meal & dose log
+// Entries live on the relay (shared by every family phone). Each one is queued on
+// the phone first and sent when there's signal, so nothing is lost offline.
+
+const PENDING_KEY = 'pending-events';
+const deviceId = store.get('device') || (() => { const d = `phone-${Math.random().toString(36).slice(2, 8)}`; store.set('device', d); return d; })();
+const logReady = () => cgmReady();
+const newId = () => Math.random().toString(36).slice(2, 12).padEnd(10, '0');
+const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
+
+async function flushPending() {
+  const pending = store.get(PENDING_KEY, []);
+  if (!pending.length || !logReady()) return;
+  const left = [];
+  for (const e of pending) {
+    try {
+      await relayFetch(cgmUrl(), '/events', { method: 'POST', body: e });
+    } catch (err) {
+      if (!(err.status >= 400 && err.status < 500)) left.push(e); // keep for later unless rejected
+    }
+  }
+  store.set(PENDING_KEY, left);
+}
+
+async function loadTodayLog() {
+  if (!logReady()) return;
+  try {
+    await flushPending();
+    const { events } = await relayFetch(cgmUrl(), '/events?days=1');
+    state.todayLog = events.filter((e) => isToday(e.at));
+  } catch {}
+  renderHome();
+}
+
+async function saveEvent(event) {
+  store.set(PENDING_KEY, [...store.get(PENDING_KEY, []), event]);
+  renderHome();
+  await loadTodayLog();
+}
+
+async function removeEvent(id) {
+  const pending = store.get(PENDING_KEY, []);
+  if (pending.some((e) => e.id === id)) store.set(PENDING_KEY, pending.filter((e) => e.id !== id));
+  else await relayFetch(cgmUrl(), `/events/${id}`, { method: 'DELETE' });
+  state.todayLog = (state.todayLog || []).filter((e) => e.id !== id);
+  renderHome();
+}
+
+function eventTitle(e) {
+  const units = e.insulinGiven != null ? `${fmt(e.insulinGiven)} U` : 'No insulin';
+  if (e.type === 'low-treatment') return `Low treated · ${fmt(e.carbs || 0)} g carbs`;
+  if (e.type === 'correction') return `${units} correction`;
+  return `${units} for ${fmt(e.carbs || 0)} g carbs`;
+}
+
+function eventSub(e) {
+  const bg = e.bg != null ? `BG ${fmt(e.bg)}${e.bgSource && e.bgSource !== 'typed' ? ` (${e.bgSource === 'libre' ? 'Libre' : 'Dexcom'})` : ''}` : 'No BG';
+  const foods = (e.foods || []).map((f) => f.name).slice(0, 3).join(', ');
+  return [bg, foods].filter(Boolean).join(' · ');
+}
+
+function todayLogHtml() {
+  if (!logReady()) return '';
+  const pending = store.get(PENDING_KEY, []).filter((e) => isToday(e.at)).map((e) => ({ ...e, pending: true }));
+  const saved = (state.todayLog || []).filter((e) => !pending.some((p) => p.id === e.id));
+  const all = [...pending, ...saved].sort((a, b) => (a.at < b.at ? 1 : -1));
+  if (!all.length) return '';
+  return section('📝 Today', all.map((e) => `
+    <button class="row" data-event="${esc(e.id)}">
+      <span class="log-time">${clockTime(e.at)}</span>
+      <span class="row-main"><span class="row-title">${esc(eventTitle(e))}</span><span class="row-sub">${esc(eventSub(e))}${e.pending ? ' · waiting for signal' : ''}</span></span>
+      ${ICON.chevron}
+    </button>`).join(''), 'Saved for the whole family. This builds up the record we’ll use to learn how he responds to meals.');
+}
+
+function openEvent(id) {
+  const e = [...store.get(PENDING_KEY, []), ...(state.todayLog || [])].find((x) => x.id === id);
+  if (!e) return;
+  const rows = [
+    settingRow('Time', clockTime(e.at)),
+    settingRow('Carbs', `${fmt(e.carbs || 0)} g`),
+    settingRow('BG', e.bg != null ? `${fmt(e.bg)} mmol/L` : '–'),
+    settingRow('Insulin given', e.insulinGiven != null ? `<strong>${fmt(e.insulinGiven)} U</strong>` : '–'),
+    e.calculated?.rounded != null ? settingRow('DiaBuddy worked out', `${fmt(e.calculated.rounded)} U`) : '',
+  ].join('');
+  const foods = (e.foods || []).map((f) => `<div class="row"><span class="row-main"><span class="row-title">${esc(f.name)}</span></span><span class="row-value">${f.carbs != null ? `${fmt(f.carbs)} g` : ''}</span></div>`).join('');
+  openSheet(`
+    ${sheetHeader(eventTitle(e), esc(new Date(e.at).toLocaleDateString('en-ZA', { weekday: 'long', day: 'numeric', month: 'long' })))}
+    ${section(null, rows)}
+    ${foods ? section('Foods', foods) : ''}
+    <div class="sheet-actions"><button class="btn btn-danger" id="event-delete">Delete this entry</button></div>`, {
+    onMount(root) {
+      $('#event-delete', root).addEventListener('click', async (ev) => {
+        ev.currentTarget.disabled = true;
+        try {
+          await removeEvent(e.id);
+          closeSheet();
+          toast('Entry deleted');
+        } catch (err) {
+          ev.currentTarget.disabled = false;
+          toast(err.message);
+        }
+      });
+    },
+  });
 }
 
 // ---------------------------------------------------------------- Foods screen (the one place for food)
@@ -1066,6 +1173,7 @@ function openDose({ correctionOnly = false } = {}) {
     </div><p class="field-error" id="bg-error" hidden></p></section>
     <div id="cgm-warn"></div>
     <div id="dose-out" aria-live="polite"></div>
+    <div id="dose-record"></div>
     <div class="sheet-actions">
       <button class="btn btn-secondary" data-action="close-sheet">Done</button>
       ${correctionOnly ? '' : '<button class="btn btn-plain" id="dose-new">Start a new meal</button>'}
@@ -1081,11 +1189,95 @@ function openDose({ correctionOnly = false } = {}) {
         err.hidden = r.status !== 'invalid-bg';
         err.textContent = `Enter a reading between ${BG_MIN} and ${BG_MAX} mmol/L.`;
         $('#dose-out', root).innerHTML = doseHtml(r, { correctionOnly });
+        // Keep "Did you give it?" right under the dose; moving the same element keeps what was typed.
+        const slot = $('.record-slot', root);
+        if (slot) slot.replaceWith(recordEl);
+        else $('#dose-out', root).after(recordEl);
         if (r.status === 'ok' && r.rounded !== lastRounded) {
           if (lastRounded !== null) $('.dose-result', root)?.classList.add('dose-pop');
           lastRounded = r.rounded;
         }
+        paintRecord(r, bg);
       };
+
+      // "Record as given": the units actually given, which may differ from the calculation.
+      let givenEdited = false;
+      let latest = null;
+      const recordEl = $('#dose-record', root);
+      const paintRecord = (r, bg) => {
+        latest = { r, bg };
+        if (!logReady()) { recordEl.innerHTML = ''; return; }
+        const lowWithFood = r.status === 'hypo' && carbs > 0;
+        if (r.status !== 'ok' && !lowWithFood) { recordEl.innerHTML = ''; return; }
+        if (lowWithFood) {
+          if (!$('#record-low', recordEl)) {
+            recordEl.innerHTML = `<div class="sheet-actions"><button class="btn btn-secondary" id="record-low">📝 Record what he ate to treat the low</button></div>`;
+          }
+          return;
+        }
+        if (!$('#given', recordEl)) {
+          recordEl.innerHTML = `
+            <section class="section"><h2 class="section-header">📝 Did you give it?</h2><div class="group">
+              <div class="row field-row"><label for="given">Units given<span class="row-sub">Change it if you gave a different amount</span></label>
+                <span class="stepper"><button type="button" data-given="-1" aria-label="Half a unit less">${ICON.minus}</button></span>
+                <input id="given" inputmode="decimal" style="width:3.5rem;text-align:center">
+                <span class="stepper"><button type="button" data-given="1" aria-label="Half a unit more">${ICON.plus}</button></span>
+              </div>
+            </div><p class="section-footer">Saves the foods, BG and units to his log for the whole family.</p></section>
+            <div class="sheet-actions"><button class="btn btn-primary" id="record-dose">✓ Record as given</button></div>`;
+        }
+        if (!givenEdited) $('#given', recordEl).value = r.rounded.toFixed(1);
+      };
+
+      const bgSourceNow = () => (cgmFilled !== null && input.value === cgmFilled && cgmReading ? cgmReading.source || 'dexcom' : 'typed');
+      const record = async (type, insulinGiven) => {
+        const { r, bg } = latest;
+        const lines = correctionOnly ? [] : state.meal;
+        const event = {
+          id: newId(),
+          type,
+          at: new Date().toISOString(),
+          carbs,
+          foods: lines.map((l) => ({ name: l.food.name, servings: l.servings, carbs: Math.round(lineCarbs(l.food, l.servings) * 10) / 10, source: l.food.source })),
+          bg: bg != null && !Number.isNaN(bg) ? bg : null,
+          bgSource: bg != null ? bgSourceNow() : null,
+          insulinGiven,
+          calculated: r.status === 'ok' ? { rounded: r.rounded, exact: Math.round(r.exact * 100) / 100, food: Math.round(r.foodDose * 100) / 100, correction: Math.round(r.correction * 100) / 100 } : null,
+          recentInsulin,
+          settings: { icr: state.settings?.icr, cf: state.settings?.cf, targetBg: state.settings?.targetBg },
+          device: deviceId,
+        };
+        const previousMeal = state.meal;
+        closeSheet();
+        if (!correctionOnly) { state.meal = []; saveMeal(); renderTray(); refreshRows(); }
+        await saveEvent(event);
+        toast(type === 'low-treatment' ? 'Low treatment saved to his log' : `${fmt(insulinGiven)} U saved to his log`, {
+          action: 'Undo',
+          onAction: async () => {
+            try { await removeEvent(event.id); } catch {}
+            if (!correctionOnly) { state.meal = previousMeal; saveMeal(); renderTray(); refreshRows(); }
+          },
+        });
+      };
+
+      recordEl.addEventListener('input', (e) => { if (e.target.id === 'given') givenEdited = true; });
+      recordEl.addEventListener('click', (e) => {
+        const step = Number(e.target.closest('[data-given]')?.dataset.given);
+        if (step) {
+          const field = $('#given', recordEl);
+          const v = num(field.value) ?? 0;
+          field.value = Math.max(0, Math.round((v + step * 0.5) * 2) / 2).toFixed(1);
+          givenEdited = true;
+          return;
+        }
+        if (e.target.closest('#record-low')) { record('low-treatment', 0); return; }
+        if (e.target.closest('#record-dose')) {
+          const units = num($('#given', recordEl).value);
+          if (units == null || units < 0 || units > 50) { toast('Enter the units you gave'); return; }
+          if (latest.r.maxDose && units > latest.r.maxDose && !confirm(`${fmt(units)} U is more than the ${fmt(latest.r.maxDose)} U limit. Record it anyway?`)) return;
+          record(correctionOnly ? 'correction' : 'dose', units);
+        }
+      });
 
       // Fill in BG from the sensor when the reading is fresh enough to trust.
       let cgmFilled = null;
@@ -1179,6 +1371,7 @@ function doseHtml(r, { correctionOnly }) {
       <p class="dose-value">${r.rounded.toFixed(1)}<small>${r.rounded === 1 ? 'unit' : 'units'}</small></p>
       <p class="dose-exact">Exact ${r.exact.toFixed(2)} U, rounded to the nearest ${r.step} U${flooredNote}</p>
     </div>
+    <div class="record-slot"></div>
     <p class="meta-line">Carb ratio 1:${fmt(s.icr)} · Correction 1:${fmt(s.cf)} · Target ${fmt(s.targetBg)} mmol/L<br>Settings last changed ${fmtDate(s.updatedAt)}${state.settingsMeta?.from === 'cache' ? ' (offline copy)' : ''}</p>
     <p class="meta-line">DiaBuddy is a calculator. Always follow his diabetes team’s plan and use your judgement.</p>`;
 }
@@ -1537,7 +1730,7 @@ function initEvents() {
   document.addEventListener('touchstart', () => {}, { passive: true });
 
   document.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-tab], [data-add], [data-detail], [data-action], [data-line], [data-step], [data-cat]');
+    const t = e.target.closest('[data-tab], [data-add], [data-detail], [data-action], [data-line], [data-step], [data-cat], [data-event]');
     if (!t) return;
     const d = t.dataset;
     if (d.tab) switchTab(d.tab);
@@ -1545,6 +1738,7 @@ function initEvents() {
     else if (d.detail) { const f = foodIndex.get(d.detail); if (f) openFoodDetail(f); }
     else if (d.action) actions[d.action]?.();
     else if (d.line) openLineEditor(d.line);
+    else if (d.event) openEvent(d.event);
     else if (d.step) {
       const line = state.meal.find((l) => l.food.id === d.id);
       if (line) setServings(d.id, line.servings + Number(d.step) * 0.5);
@@ -1562,6 +1756,7 @@ function initEvents() {
     renderGreeting();
     if (await loadSettings()) { renderSettings(); renderSetupBanner(); }
     refreshCgm();
+    loadTodayLog();
   });
 }
 
@@ -1583,6 +1778,8 @@ async function boot() {
   renderSettings();
   renderCgmCard();
   refreshCgm();
+  loadTodayLog();
+  addEventListener('online', () => loadTodayLog());
   if (linked) toast(cgmUrl() ? 'His glucose readings are on this phone now' : 'Family key saved');
   // The family link opened in a tab where DiaBuddy is already running.
   addEventListener('hashchange', () => {

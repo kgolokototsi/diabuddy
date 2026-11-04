@@ -128,6 +128,19 @@ If LibreLinkUp later asks the follower account to accept new terms, readings sto
 
 > LibreLinkUp, like Dexcom Share, isn't officially offered for other apps to use, so it can stop working without warning. If it does, the app says so and you type the BG as before.
 
+## His log
+
+After **Work out dose**, the **Did you give it?** step records what he actually had:
+- the foods and carbs
+- his BG, and whether it came from Libre, Dexcom or was typed in
+- the dose DiaBuddy worked out, and the units you actually gave (change the number if you gave a different amount)
+
+When his BG is low, you can record what he ate to treat it, with no insulin.
+
+- Entries are shared by every family phone and appear under **Today** on Home. Tap one to see it or delete it, and every save has **Undo**.
+- With no signal, entries wait on the phone and send automatically later.
+- The relay also keeps every glucose reading for 120 days and log entries for a year, stored in your Cloudflare account. Together they're the record we'll use to see how he responds to different meals.
+
 ## How the dose is worked out
 
 ```

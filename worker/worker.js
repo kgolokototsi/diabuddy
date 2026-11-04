@@ -242,8 +242,8 @@ function corsHeaders(env, request) {
   const allowed = [env.ALLOWED_ORIGIN || 'https://kgolokototsi.github.io', 'http://127.0.0.1:8765', 'http://localhost:8765', 'file://', 'null'];
   return {
     'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'X-DiaBuddy-Key',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'X-DiaBuddy-Key, Content-Type',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
@@ -285,28 +285,131 @@ async function readSensors(env) {
 }
 
 // The sensors only hand out their newest reading (Libre's history is every 15 minutes),
-// so a scheduled job stores each new one in KV. Keeps two hours; one write per new reading.
-const LOG_KEY = 'log';
-const LOG_KEEP_MS = 2 * 60 * 60000;
+// so a scheduled job stores each new one in KV: one key per UTC day, kept 120 days.
+// That history is what meals and doses get matched against later.
+const GLUCOSE_TTL_S = 120 * 24 * 3600;
+const dayKey = (ms) => `glucose:${new Date(ms).toISOString().slice(0, 10)}`;
 
 async function recordReadings(env, readings, now = Date.now()) {
   if (!env.LOG || !readings.length) return;
-  const log = (await env.LOG.get(LOG_KEY, 'json')) || [];
-  const known = new Set(log.map((p) => `${p.source}|${p.time}`));
-  const fresh = readings.filter((r) => !known.has(`${r.source}|${r.time}`)).map(({ source, mgdl, time }) => ({ source, mgdl, time }));
-  if (!fresh.length) return;
-  const kept = [...log, ...fresh].filter((p) => now - p.time <= LOG_KEEP_MS).sort((a, b) => a.time - b.time);
-  await env.LOG.put(LOG_KEY, JSON.stringify(kept));
+  const byDay = new Map();
+  for (const { source, mgdl, time } of readings) {
+    const key = dayKey(time);
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push({ source, mgdl, time });
+  }
+  for (const [key, fresh] of byDay) {
+    const log = (await env.LOG.get(key, 'json')) || [];
+    const known = new Set(log.map((p) => `${p.source}|${p.time}`));
+    const add = fresh.filter((p) => !known.has(`${p.source}|${p.time}`) && now - p.time < GLUCOSE_TTL_S * 1000);
+    if (!add.length) continue;
+    await env.LOG.put(key, JSON.stringify([...log, ...add].sort((a, b) => a.time - b.time)), { expirationTtl: GLUCOSE_TTL_S });
+  }
 }
 
-async function loggedPoints(env, source) {
+async function loggedPoints(env, source, now = Date.now()) {
   if (!env.LOG) return [];
   try {
-    return ((await env.LOG.get(LOG_KEY, 'json')) || []).filter((p) => p.source === source);
+    const days = [...new Set([dayKey(now - 60 * 60000), dayKey(now)])];
+    const logs = await Promise.all(days.map((k) => env.LOG.get(k, 'json')));
+    return logs.flat().filter((p) => p && p.source === source);
   } catch {
     return [];
   }
 }
+
+// ---------------------------------------------------------------- meal & dose log
+
+// One KV key per entry (event:<ISO time>:<id>), so two phones saving at once can't
+// overwrite each other. Kept a year.
+const EVENT_TTL_S = 365 * 24 * 3600;
+const num = (v, lo, hi) => (typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi ? v : null);
+const str = (v, max) => (typeof v === 'string' ? v.slice(0, max) : null);
+
+function cleanEvent(body, now = Date.now()) {
+  if (!body || typeof body !== 'object') return null;
+  const at = Date.parse(body.at);
+  if (!Number.isFinite(at) || at > now + 5 * 60000 || at < now - 30 * 24 * 3600e3) return null;
+  const type = ['dose', 'low-treatment', 'correction'].includes(body.type) ? body.type : null;
+  if (!type) return null;
+  const foods = Array.isArray(body.foods) ? body.foods.slice(0, 40).map((f) => ({
+    name: str(f?.name, 80) || 'Food',
+    servings: num(f?.servings, 0, 50),
+    carbs: num(f?.carbs, 0, 500),
+    source: str(f?.source, 20),
+  })) : [];
+  return {
+    id: /^[a-z0-9]{6,20}$/.test(body.id) ? body.id : Math.random().toString(36).slice(2, 12),
+    at: new Date(at).toISOString(),
+    type,
+    carbs: num(body.carbs, 0, 1000),
+    foods,
+    bg: num(body.bg, 0, 40),
+    bgSource: ['typed', 'libre', 'dexcom'].includes(body.bgSource) ? body.bgSource : null,
+    insulinGiven: num(body.insulinGiven, 0, 50),
+    calculated: body.calculated && typeof body.calculated === 'object' ? {
+      rounded: num(body.calculated.rounded, 0, 50),
+      exact: num(body.calculated.exact, 0, 50),
+      food: num(body.calculated.food, 0, 50),
+      correction: num(body.calculated.correction, -50, 50),
+    } : null,
+    recentInsulin: body.recentInsulin === true,
+    settings: body.settings && typeof body.settings === 'object' ? {
+      icr: num(body.settings.icr, 0, 500), cf: num(body.settings.cf, 0, 100), targetBg: num(body.settings.targetBg, 0, 40),
+    } : null,
+    note: str(body.note, 200),
+    device: str(body.device, 40),
+    savedAt: new Date(now).toISOString(),
+  };
+}
+
+const eventKey = (e) => `event:${e.at}:${e.id}`;
+
+async function listEvents(env, days) {
+  const since = new Date(Date.now() - days * 24 * 3600e3).toISOString();
+  const keys = [];
+  let cursor;
+  do {
+    const page = await env.LOG.list({ prefix: 'event:', cursor });
+    keys.push(...page.keys.map((k) => k.name).filter((name) => name.slice(6) >= since));
+    cursor = page.list_complete ? null : page.cursor;
+  } while (cursor);
+  const events = await Promise.all(keys.map((k) => env.LOG.get(k, 'json')));
+  return events.filter(Boolean).sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+
+async function handleEvents(request, env, url, cors, canWrite) {
+  if (!env.LOG) return json({ error: 'log_unavailable' }, 503, cors);
+
+  if (request.method === 'GET') {
+    const days = Math.min(90, Math.max(1, Number(url.searchParams.get('days')) || 7));
+    return json({ events: await listEvents(env, days) }, 200, cors);
+  }
+  if (!canWrite) return json({ error: 'read_only_key' }, 403, cors);
+
+  if (request.method === 'POST') {
+    const text = await request.text();
+    if (text.length > 16000) return json({ error: 'too_large' }, 413, cors);
+    let body;
+    try { body = JSON.parse(text); } catch { return json({ error: 'bad_json' }, 400, cors); }
+    const event = cleanEvent(body);
+    if (!event) return json({ error: 'bad_event' }, 400, cors);
+    await env.LOG.put(eventKey(event), JSON.stringify(event), { expirationTtl: EVENT_TTL_S });
+    return json({ event }, 201, cors);
+  }
+
+  if (request.method === 'DELETE') {
+    const id = url.pathname.split('/')[2] || '';
+    if (!/^[a-z0-9]{6,20}$/.test(id)) return json({ error: 'bad_id' }, 400, cors);
+    const match = (await listEvents(env, 31)).find((e) => e.id === id);
+    if (!match) return json({ error: 'not_found' }, 404, cors);
+    await env.LOG.delete(eventKey(match));
+    return json({ deleted: id }, 200, cors);
+  }
+  return json({ error: 'not_found' }, 404, cors);
+}
+
+// ---------------------------------------------------------------- entry point
 
 export default {
   async fetch(request, env) {
@@ -314,13 +417,18 @@ export default {
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
     const url = new URL(request.url);
-    if (url.pathname !== '/latest' || request.method !== 'GET') return json({ error: 'not_found' }, 404, cors);
+    const isEvents = url.pathname === '/events' || url.pathname.startsWith('/events/');
+    if (!(url.pathname === '/latest' && request.method === 'GET') && !isEvents) return json({ error: 'not_found' }, 404, cors);
 
     const keys = [env.FAMILY_KEY, env.TV_KEY].filter(Boolean);
     if (!keys.length || !setUpSources(env).length) return json({ error: 'not_configured' }, 500, cors);
     const given = request.headers.get('X-DiaBuddy-Key') || '';
     // Check every key (no early exit) so timing doesn't reveal which one matched.
-    if (!keys.map((k) => safeEqual(given, k)).includes(true)) return json({ error: 'bad_key' }, 401, cors);
+    const matches = keys.map((k) => safeEqual(given, k));
+    if (!matches.includes(true)) return json({ error: 'bad_key' }, 401, cors);
+
+    // Only the family key may add or remove log entries; a TV key can read.
+    if (isEvents) return handleEvents(request, env, url, cors, Boolean(env.FAMILY_KEY) && safeEqual(given, env.FAMILY_KEY));
 
     const { readings, status } = await readSensors(env);
     if (!readings.length) {
@@ -330,7 +438,7 @@ export default {
     const now = Date.now();
     // The newest sensor's readings from the last hour, oldest first: what the sensor
     // gave us now plus what the scheduled job logged. Points under 30 s apart are one reading.
-    const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source))]
+    const points = [...(readings[0].history || []), ...(await loggedPoints(env, readings[0].source, now))]
       .filter((p) => Number.isFinite(p.mgdl) && Number.isFinite(p.time) && now - p.time <= 60 * 60000)
       .sort((a, b) => a.time - b.time)
       .filter((p, i, all) => i === 0 || p.time - all[i - 1].time >= 30000);
@@ -338,7 +446,7 @@ export default {
     return json({ readings: readings.map(({ history: _h, ...r }) => toReading(r, now)), history, sources: status }, 200, cors);
   },
 
-  // Cron trigger (wrangler.toml): log each new reading so the chart has every minute.
+  // Cron trigger (wrangler.toml): log each new reading so we have every minute.
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(readSensors(env).then(({ readings }) => recordReadings(env, readings)).catch(() => {}));
   },

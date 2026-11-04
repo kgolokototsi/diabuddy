@@ -394,6 +394,9 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
   .trend-chart circle { fill: #dc6f50; }
 }
 
+/* Today's log on Home */
+.log-time { flex: none; width: 3.2rem; font-size: 0.875rem; font-weight: 650; color: var(--label-2); font-variant-numeric: tabular-nums; }
+
 /* ---------- Banners ---------- */
 
 .banner {

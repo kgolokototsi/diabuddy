@@ -197,10 +197,14 @@ test('CORS preflight is answered', async () => {
 // In-memory stand-in for a Workers KV namespace.
 function memoryKv() {
   const data = new Map();
+  const ttl = new Map();
   let writes = 0;
   return {
     async get(key, type) { const v = data.get(key); return v == null ? null : type === 'json' ? JSON.parse(v) : v; },
-    async put(key, value) { writes++; data.set(key, value); },
+    async put(key, value, opts) { writes++; data.set(key, value); ttl.set(key, opts?.expirationTtl); },
+    async delete(key) { data.delete(key); },
+    async list({ prefix = '' } = {}) { return { keys: [...data.keys()].filter((k) => k.startsWith(prefix)).sort().map((name) => ({ name })), list_complete: true }; },
+    ttlOf: (key) => ttl.get(key),
     get writes() { return writes; },
   };
 }
@@ -228,21 +232,67 @@ test('scheduled job logs each new reading once, and /latest returns them as minu
   assert.equal(body.history.at(-1).mmol, 10);
 });
 
-test('log keeps two hours and only the newest sensor shows in history', async () => {
+test('readings are kept per day for 120 days, and only the newest sensor shows in history', async () => {
   const w = await load();
   const LOG = memoryKv();
   const now = Date.now();
-  await LOG.put('log', JSON.stringify([
-    { source: 'libre', mgdl: 100, time: now - 3 * 3600e3 },
+  const today = `glucose:${new Date(now).toISOString().slice(0, 10)}`;
+  await LOG.put(today, JSON.stringify([
     { source: 'dexcom', mgdl: 200, time: now - 5 * 60000 },
     { source: 'libre', mgdl: 120, time: now - 5 * 60000 },
   ]));
   const env = { ...libreEnv, LOG };
   await runScheduled(w, env);
-  const log = await LOG.get('log', 'json');
-  assert.ok(!log.some((p) => p.mgdl === 100), 'old entry dropped');
+  assert.equal(LOG.ttlOf(today), 120 * 24 * 3600);
+  assert.equal((await LOG.get(today, 'json')).length, 3);
   const body = await (await get(w, env)).json();
   assert.ok(body.history.every((p) => p.mmol < 11), 'no Dexcom points in a Libre history');
+});
+
+const post = (w, env, body, key = env.FAMILY_KEY) => w.fetch(new Request('https://relay.example/events', {
+  method: 'POST', headers: { 'X-DiaBuddy-Key': key, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+}), env);
+const list = (w, env, key = env.FAMILY_KEY) => w.fetch(new Request('https://relay.example/events?days=7', { headers: { 'X-DiaBuddy-Key': key } }), env);
+
+test('dose log: save, list newest first, and delete', async () => {
+  const w = await load();
+  const env = { ...libreEnv, LOG: memoryKv() };
+  const at1 = new Date(Date.now() - 3600e3).toISOString();
+  const at2 = new Date().toISOString();
+  let res = await post(w, env, { id: 'abc123xyz', type: 'dose', at: at1, carbs: 27.6, foods: [{ name: 'Futurelife', servings: 1, carbs: 24 }], bg: 8.2, bgSource: 'libre', insulinGiven: 3, calculated: { rounded: 3, exact: 3.08, food: 2.76, correction: 0.32 } });
+  assert.equal(res.status, 201);
+  res = await post(w, env, { id: 'def456uvw', type: 'low-treatment', at: at2, carbs: 15, foods: [{ name: 'Apple juice', servings: 0.7, carbs: 15 }], bg: 3.4, bgSource: 'typed' });
+  assert.equal(res.status, 201);
+  const { events } = await (await list(w, env)).json();
+  assert.deepEqual(events.map((e) => e.id), ['def456uvw', 'abc123xyz']);
+  assert.equal(events[1].insulinGiven, 3);
+  assert.equal(events[1].foods[0].name, 'Futurelife');
+
+  res = await w.fetch(new Request('https://relay.example/events/abc123xyz', { method: 'DELETE', headers: { 'X-DiaBuddy-Key': env.FAMILY_KEY } }), env);
+  assert.equal(res.status, 200);
+  assert.deepEqual((await (await list(w, env)).json()).events.map((e) => e.id), ['def456uvw']);
+});
+
+test('dose log: bad entries are rejected and odd values dropped', async () => {
+  const w = await load();
+  const env = { ...libreEnv, LOG: memoryKv() };
+  assert.equal((await post(w, env, { type: 'dose', at: 'not a date' })).status, 400);
+  assert.equal((await post(w, env, { type: 'party', at: new Date().toISOString() })).status, 400);
+  assert.equal((await post(w, env, { type: 'dose', at: new Date(Date.now() + 3600e3).toISOString() })).status, 400);
+  const res = await post(w, env, { type: 'dose', at: new Date().toISOString(), insulinGiven: 999, bg: 'high', foods: [{ name: '<b>x</b>'.repeat(50), carbs: -4 }] });
+  const { event } = await res.json();
+  assert.equal(event.insulinGiven, null);
+  assert.equal(event.bg, null);
+  assert.equal(event.foods[0].carbs, null);
+  assert.equal(event.foods[0].name.length, 80);
+});
+
+test('dose log: a TV key can read but not write', async () => {
+  const w = await load();
+  const env = { ...libreEnv, TV_KEY: 'tv-key-456', LOG: memoryKv() };
+  assert.equal((await post(w, env, { type: 'dose', at: new Date().toISOString() }, 'tv-key-456')).status, 403);
+  assert.equal((await list(w, env, 'tv-key-456')).status, 200);
+  assert.equal((await post(w, env, { type: 'dose', at: new Date().toISOString() }, 'wrong-key')).status, 401);
 });
 
 test('relay still works with no KV bound', async () => {

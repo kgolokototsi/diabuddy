@@ -42,6 +42,8 @@ const MESSAGES = {
   libre_no_readings: 'Libre has no recent readings.',
   libre_unavailable: 'LibreLinkUp isn’t answering right now.',
   not_configured: 'The relay is missing its sensor login or family key.',
+  read_only_key: 'This device can only view the log.',
+  log_unavailable: 'The log isn’t set up on the relay.',
 };
 
 export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } = {}) {
@@ -67,6 +69,28 @@ export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } =
     if (err.name === 'AbortError') throw new Error('No answer from his sensor. Check the connection.');
     if (err instanceof TypeError) throw new Error('Can’t reach the glucose relay. Check the connection.');
     throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Calls to the relay's meal & dose log (/events). Errors carry the HTTP status so
+// callers can tell "offline, try later" (no status) from "rejected" (4xx).
+export async function relayFetch(url, path, { method = 'GET', body, key = getCgmKey(), timeoutMs = 8000 } = {}) {
+  if (!url || !key) throw new Error('Glucose readings are not set up.');
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${url.replace(/\/+$/, '')}${path}`, {
+      method,
+      headers: { 'X-DiaBuddy-Key': key, ...(body && { 'Content-Type': 'application/json' }) },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+      signal: ctrl.signal,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(MESSAGES[data.error] || `The relay returned ${res.status}.`), { status: res.status });
+    return data;
   } finally {
     clearTimeout(timer);
   }
