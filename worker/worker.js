@@ -438,9 +438,12 @@ async function handleScan(request, env, cors) {
     return json({ label }, 200, cors);
   } catch (err) {
     if (err.code) return json({ error: err.code }, 422, cors);
+    // Visible only in the Cloudflare log (wrangler tail), never sent to phones.
+    console.error('label scan failed', err.status, err.message);
     if (err instanceof Anthropic.AuthenticationError || err instanceof Anthropic.PermissionDeniedError) return json({ error: 'scan_bad_api_key' }, 502, cors);
     if (err instanceof Anthropic.RateLimitError) return json({ error: 'scan_busy' }, 503, cors);
-    if (err instanceof Anthropic.BadRequestError) return json({ error: 'bad_photo' }, 400, cors);
+    // A 400 can be about the key's set-up (e.g. not in a workspace) rather than the photo.
+    if (err instanceof Anthropic.BadRequestError) return json({ error: /api key|workspace/i.test(err.message) ? 'scan_bad_api_key' : 'bad_photo' }, 400, cors);
     return json({ error: 'scan_unavailable' }, 502, cors);
   }
 }
