@@ -15,6 +15,12 @@ const FRESH_MS = 15 * 60000;      // the newest reading must be this recent to j
 const MAX_GAP_MS = 30 * 60000;    // a longer gap in readings ends a spell: we can't say he stayed high
 const ALERT_KEY = 'high-alert';   // set while the current spell has been alerted
 export const HIGH_MESSAGE = 'Glucose reading High for over 2.5 hours. Consider a correction dosage.';
+// Kinds of alert a phone can choose. Older subscriptions (before the choice) get high only.
+export const ALERT_TYPES = ['high', 'fall'];
+export const cleanTypes = (types) => {
+  const t = Array.isArray(types) ? ALERT_TYPES.filter((k) => types.includes(k)) : ['high'];
+  return t.length ? t : null;
+};
 
 // Only the browsers' own push services: the relay never posts to any other address.
 const PUSH_HOSTS = /^(fcm\.googleapis\.com|web\.push\.apple\.com|updates\.push\.services\.mozilla\.com|[a-z0-9-]+\.notify\.windows\.com)$/;
@@ -129,8 +135,9 @@ export async function sendPush(env, sub, message) {
   }
 }
 
-export async function sendToAll(env, message) {
-  const subs = await allSubscriptions(env);
+// Sends to every phone that chose this kind of alert.
+export async function sendToAll(env, message, type = 'high') {
+  const subs = (await allSubscriptions(env)).filter((s) => (s.types || ['high']).includes(type));
   const results = await Promise.all(subs.map(async (s) => {
     const result = await sendPush(env, s, message);
     if (result === 'gone') await env.LOG.delete(s.key);
@@ -178,4 +185,49 @@ export async function checkHigh(env, logged, now = Date.now()) {
   // Mark it first, so a slow send can't lead to a second alert from the next run.
   await env.LOG.put(ALERT_KEY, new Date(since).toISOString(), { expirationTtl: 24 * 3600 });
   return sendToAll(env, message);
+}
+
+// ---------------------------------------------------------------- the falling-fast check
+
+// Falling at least this fast over the last 15 minutes (mmol/L per minute; about 2 mg/dL
+// per minute, where Dexcom's "falling" arrow starts), from below 10, alerts the family.
+export const FALL_RATE = 0.11;
+const FALL_FROM_BELOW = 10; // falls from higher up (e.g. after a correction) are expected
+const FALL_KEY = 'fall-alert';  // set for an hour after an alert, so one fall sends one alert
+const FALL_QUIET_S = 3600;
+
+const isNight = (ms) => { const h = new Date(ms + 2 * 3600000).getUTCHours(); return h >= 21 || h < 6; }; // SA time
+
+// How fast he's falling now, if it's a sharp fall. points: one sensor's { mgdl, time }.
+export function fallingFast(points, now = Date.now()) {
+  const pts = points.map((p) => ({ t: p.time, v: Math.round((p.mgdl / MGDL_PER_MMOL) * 10) / 10 })).sort((a, b) => a.t - b.t);
+  const cur = pts.at(-1);
+  if (!cur || now - cur.t > 6 * 60000) return null;
+  const near = (mins, tol) => pts.filter((p) => Math.abs(cur.t - p.t - mins * 60000) <= tol * 60000)
+    .sort((a, b) => Math.abs(cur.t - a.t - mins * 60000) - Math.abs(cur.t - b.t - mins * 60000))[0];
+  const b15 = near(15, 4);
+  const b5 = near(5, 3);
+  if (!b15 || !b5) return null;
+  const rate = (cur.v - b15.v) / ((cur.t - b15.t) / 60000);
+  // Still falling over the last 5 minutes too, so a single odd reading doesn't count.
+  if (rate > -FALL_RATE || cur.v >= b5.v || cur.v >= FALL_FROM_BELOW) return null;
+  return { bg: cur.v, drop: Math.round((b15.v - cur.v) * 10) / 10, minutes: Math.round((cur.t - b15.t) / 60000), rate: Math.round(rate * 100) / 100, night: isNight(cur.t) };
+}
+
+export function fallMessage(f, low = 4) {
+  const where = f.bg < low ? `He's ${f.bg.toFixed(1)} and still falling` : `Down ${f.drop.toFixed(1)} in ${f.minutes} min, now ${f.bg.toFixed(1)}`;
+  const body = f.night
+    ? `${where}. He may be heading low, or lying on his sensor (that can show a false drop). Check him with a finger-prick.`
+    : `${where}. Prepare for a possible low: check him and have 15 g of fast carbs ready.`;
+  return { title: `Falling fast: ${f.bg.toFixed(1)} mmol/L`, body, tag: 'falling-fast' };
+}
+
+export async function checkFall(env, logged, now = Date.now(), { low = 4 } = {}) {
+  if (!env.LOG || !env.VAPID_PRIVATE_JWK) return null;
+  const newest = logged.reduce((a, p) => (!a || p.time > a.time ? p : a), null);
+  if (!newest) return null;
+  const f = fallingFast(logged.filter((p) => p.source === newest.source && now - p.time <= 30 * 60000), now);
+  if (!f || (await env.LOG.get(FALL_KEY))) return null;
+  await env.LOG.put(FALL_KEY, new Date(now).toISOString(), { expirationTtl: FALL_QUIET_S });
+  return sendToAll(env, fallMessage(f, low), 'fall');
 }

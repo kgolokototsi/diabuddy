@@ -23,7 +23,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { readLabel } from './label.js';
 import { authenticate, can, createInvite, enroll, listDevices, removeDevice, turnOffLegacy, legacyActive, ROLES, sha256Hex } from './auth.js';
 import { readSettings, settingsHistory, writeSettings } from './settings.js';
-import { checkHigh, cleanSubscription, sendPush, subscriptionKey, vapidPublicKey, HIGH_FOR_MS } from './push.js';
+import { checkFall, checkHigh, cleanSubscription, cleanTypes, sendPush, subscriptionKey, vapidPublicKey, HIGH_FOR_MS } from './push.js';
 import { buildNextDay, invalidateDay, readInsights } from './insights.js';
 import { isoWeek, writeSummary } from './summary.js';
 
@@ -532,7 +532,7 @@ async function purge(env, what) {
   const prefixes = {
     glucose: ['glucose:', ...insights],
     events: ['event:', ...insights],
-    all: ['glucose:', 'event:', 'settings-history:', 'scans:', ...insights, 'insights-summary:', 'insights-refresh:', 'high-alert'],
+    all: ['glucose:', 'event:', 'settings-history:', 'scans:', ...insights, 'insights-summary:', 'insights-refresh:', 'high-alert', 'fall-alert'],
   }[what];
   if (!prefixes) return null;
   let deleted = 0;
@@ -715,14 +715,16 @@ export default {
       if (!env.VAPID_PRIVATE_JWK) return json({ error: 'alerts_not_configured' }, 503, cors);
       const key = subscriptionKey(device.id);
       if (path === '/push' && method === 'GET') {
-        return json({ publicKey: vapidPublicKey(env), subscribed: Boolean(await env.LOG.get(key)) }, 200, cors);
+        const sub = await env.LOG.get(key, 'json');
+        return json({ publicKey: vapidPublicKey(env), subscribed: Boolean(sub), types: sub ? sub.types || ['high'] : [] }, 200, cors);
       }
       if (path === '/push' && method === 'PUT') {
         const { body, bad, tooLarge } = await readJson(request, 2000);
         const sub = bad || tooLarge ? null : cleanSubscription(body);
-        if (!sub) return json({ error: 'bad_subscription' }, 400, cors);
-        await env.LOG.put(key, JSON.stringify({ ...sub, deviceId: device.id, createdAt: new Date().toISOString() }));
-        return json({ subscribed: true }, 200, cors);
+        const types = bad || tooLarge ? null : cleanTypes(body.types);
+        if (!sub || !types) return json({ error: 'bad_subscription' }, 400, cors);
+        await env.LOG.put(key, JSON.stringify({ ...sub, types, deviceId: device.id, createdAt: new Date().toISOString() }));
+        return json({ subscribed: true, types }, 200, cors);
       }
       if (path === '/push' && method === 'DELETE') {
         await env.LOG.delete(key);
@@ -731,7 +733,7 @@ export default {
       if (path === '/push/test' && method === 'POST') {
         const sub = await env.LOG.get(key, 'json');
         if (!sub) return json({ error: 'not_subscribed' }, 400, cors);
-        const result = await sendPush(env, sub, { title: 'Test alert', body: 'High-glucose alerts are on for this phone.', tag: 'test' });
+        const result = await sendPush(env, sub, { title: 'Test alert', body: 'Alerts are on for this phone.', tag: 'test' });
         if (result === 'gone') await env.LOG.delete(key);
         return result === 'sent' ? json({ sent: true }, 200, cors) : json({ error: 'push_failed' }, 502, cors);
       }
@@ -778,9 +780,11 @@ export default {
       const now = Date.now();
       const memo = new Map();
       await recordReadings(env, readings, now, memo);
-      await checkHigh(env, await loggedPoints(env, null, now, HIGH_FOR_MS + 30 * 60000, memo), now);
-      // Build any missing day of insights (one per run; nothing to do most runs).
+      const logged = await loggedPoints(env, null, now, HIGH_FOR_MS + 30 * 60000, memo);
       const low = (env.LOG && (await env.LOG.get('settings', 'json'))?.hypoThreshold) || 4;
+      await checkHigh(env, logged, now);
+      await checkFall(env, logged, now, { low });
+      // Build any missing day of insights (one per run; nothing to do most runs).
       await buildNextDay(env, now, { low });
     })().catch((err) => console.warn('scheduled job failed', err?.name)));
   },

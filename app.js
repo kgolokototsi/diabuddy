@@ -3,7 +3,7 @@ import { loadFoods, searchFoods, loadPackaged, lookupBarcode, CATEGORIES, SOURCE
 import { spring, project, rubberband, VelocityTracker } from './spring.js';
 import { RELAY_URL, APP_VERSION } from './config.js';
 import { forecastResponse, lowRisk, recentSlope, forecastNow } from './forecast.js';
-import { alertSupport, alertsOn, turnOnAlerts, turnOffAlerts, sendTestAlert } from './alerts.js';
+import { alertSupport, alertTypes, setAlertTypes, sendTestAlert } from './alerts.js';
 import { getCgmKey, setCgmKey, consumeJoinCode, joinCodeFrom, inviteLink, fetchLatest, relayFetch, usableForDose, FRESH_MINUTES } from './cgm.js';
 
 // ---------------------------------------------------------------- helpers
@@ -57,7 +57,7 @@ const state = {
   meal: [],
   recent: store.get('recent', []),
   cgm: { reading: null, error: null, at: 0, loading: false },
-  alerts: { on: null },
+  alerts: { types: null },
   model: store.get('forecast-model', null), // his 30/60-minute forecast model, refitted nightly
   recentEvents: [],
   insights: { data: null, at: 0, loading: false, error: null, summary: null, kind: 'meal', days: 14, table: false, carbs: null, units: null, bgTyped: null, mealOfDay: null },
@@ -132,7 +132,7 @@ function forgetThisPhone() {
   state.recentEvents = [];
   try { localStorage.removeItem('diabuddy.meal'); } catch {}
   // The relay forgets this phone's alerts with the phone; drop the browser's side too.
-  state.alerts = { on: null };
+  state.alerts = { types: null };
   state.insights = { ...state.insights, data: null, at: 0, summary: null };
   navigator.serviceWorker?.getRegistration().then((reg) => reg?.pushManager.getSubscription()).then((sub) => sub?.unsubscribe()).catch(() => {});
 }
@@ -781,11 +781,17 @@ function phoneRows() {
   ].join('');
 }
 
-// High-glucose alerts for this phone. state.alerts.on: null until checked, then true/false.
+// The alerts a phone can choose: [type, title, what it does].
+const ALERT_CHOICES = [
+  ['high', 'High for over 2.5 hours', `When he’s been ${HIGH_MMOL} mmol/L or higher for 2.5 hours.`],
+  ['fall', 'Falling fast', 'When he drops quickly (about 1.7 mmol/L or more in 15 minutes) from below 10, to get ready for a possible low. At night this can also mean he’s lying on his sensor.'],
+];
+
+// Alerts for this phone. state.alerts.types: null until checked, then the chosen types.
 function alertRows() {
   const me = state.me;
   if (!getCgmKey() || !me || me.role === 'tv') return '';
-  const title = 'High for over 2.5 hours';
+  const title = 'Alerts on this phone';
   const note = (sub) => `<div class="row"><span class="row-main"><span class="row-title">${title}</span><span class="row-sub">${sub}</span></span></div>`;
   if (me.legacy) return note('Connect this phone with an invite from the admin to get alerts.');
   const support = alertSupport();
@@ -793,28 +799,31 @@ function alertRows() {
   if (support === 'blocked') return note('Notifications are blocked for DiaBuddy. Allow them in the phone’s settings, then come back here.');
   if (support === 'unsupported') return note('This browser can’t show alerts. Try Chrome on Android, or the Home Screen app on iPhone.');
 
-  const { on, busy } = state.alerts;
-  if (on == null && !busy) {
+  const { types, busy } = state.alerts;
+  if (types == null && !busy) {
     state.alerts.busy = true;
-    alertsOn().then((v) => { state.alerts = { on: v }; }, () => { state.alerts = { on: false }; })
+    alertTypes().then((t) => { state.alerts = { types: t }; }, () => { state.alerts = { types: [] }; })
       .finally(() => { if (state.tab === 'settings') renderSettings(); });
   }
-  return `<div class="row"><span class="row-main"><label for="alerts-high" class="row-title">${title}</label>
-      <span class="row-sub">Notifies this phone when he’s been ${HIGH_MMOL} mmol/L or higher for 2.5 hours.</span></span>
-      <input type="checkbox" class="switch" id="alerts-high" ${on ? 'checked' : ''} ${on == null || busy ? 'disabled' : ''}></div>
-    ${on ? '<button class="row" data-action="test-alert"><span class="row-main"><span class="row-title row-link">Send a test alert</span></span></button>' : ''}`;
+  return ALERT_CHOICES.map(([type, label, sub]) => `<div class="row"><span class="row-main"><label for="alerts-${type}" class="row-title">${label}</label>
+      <span class="row-sub">${sub}</span></span>
+      <input type="checkbox" class="switch" id="alerts-${type}" data-alert-type="${type}" ${types?.includes(type) ? 'checked' : ''} ${types == null || busy ? 'disabled' : ''}></div>`).join('')
+    + (types?.length ? '<button class="row" data-action="test-alert"><span class="row-main"><span class="row-title row-link">Send a test alert</span></span></button>' : '');
 }
 
-async function toggleAlerts(input) {
-  const want = input.checked;
-  state.alerts = { on: !want, busy: true };
-  input.disabled = true;
+async function toggleAlert(input) {
+  const before = state.alerts.types || [];
+  const type = input.dataset.alertType;
+  const next = input.checked ? [...new Set([...before, type])] : before.filter((t) => t !== type);
+  state.alerts = { types: before, busy: true };
+  for (const el of $$('[data-alert-type]')) el.disabled = true;
   try {
-    if (want) await turnOnAlerts(); else await turnOffAlerts();
-    state.alerts = { on: want };
-    toast(want ? 'Alerts are on for this phone' : 'Alerts are off for this phone');
+    await setAlertTypes(next);
+    state.alerts = { types: next };
+    const label = ALERT_CHOICES.find(([t]) => t === type)[1];
+    toast(`${label} alerts ${input.checked ? 'on' : 'off'} for this phone`);
   } catch (err) {
-    state.alerts = { on: !want };
+    state.alerts = { types: before };
     toast(err.message || 'Couldn’t change alerts. Try again.');
   }
   renderSettings();
@@ -2568,7 +2577,7 @@ function initEvents() {
   });
 
   $('#foods-search').addEventListener('input', (e) => { state.foodsQuery = e.target.value; renderFoods(); });
-  document.addEventListener('change', (e) => { if (e.target.id === 'alerts-high') toggleAlerts(e.target); });
+  document.addEventListener('change', (e) => { if (e.target.dataset.alertType) toggleAlert(e.target); });
   initInsights();
 
   document.addEventListener('visibilitychange', async () => {

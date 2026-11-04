@@ -1,7 +1,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createInvite } from '../worker/auth.js';
-import { encryptPayload, highSince, checkHigh, cleanSubscription, HIGH_MESSAGE } from '../worker/push.js';
+import { encryptPayload, highSince, checkHigh, checkFall, fallingFast, cleanSubscription, HIGH_MESSAGE } from '../worker/push.js';
 
 const { subtle } = crypto;
 const enc = new TextEncoder();
@@ -193,4 +193,63 @@ test('without the VAPID key, alerts say they are not set up', async () => {
   const env = { ...makeEnv(), VAPID_PRIVATE_JWK: undefined };
   const { token } = await join(env, 'family');
   assert.equal((await call(env, 'GET', '/push', { key: token })).body.error, 'alerts_not_configured');
+});
+
+// ---------------------------------------------------------------- falling fast
+
+// Readings every 2 minutes for the last `mins` minutes, falling `rate` mmol/L per minute to `to`.
+const falling = (now, to, rate, mins = 20, source = 'libre') =>
+  Array.from({ length: mins / 2 + 1 }, (_, i) => ({ source, mgdl: Math.round((to + rate * (mins - i * 2)) * MGDL), time: now - (mins - i * 2) * MIN }));
+const subscribeTypes = async (env, key, types) => {
+  const phone = await phoneKeys();
+  const res = await call(env, 'PUT', '/push', { key, body: { endpoint: `https://fcm.googleapis.com/push/${Math.random()}`, keys: { p256dh: phone.p256dh, auth: phone.auth }, types } });
+  return { phone, res };
+};
+const saTime = (hhmm) => Date.parse(`2026-11-05T${hhmm}:00Z`) - 2 * 3600000;
+
+test('falling fast: about 1.7 mmol/L in 15 minutes from below 10; slower falls, rises and falls from high do not count', () => {
+  const now = saTime('14:00');
+  const f = fallingFast(falling(now, 5.2, 0.15), now);
+  assert.equal(f.bg, 5.2);
+  assert.ok(f.rate <= -0.11);
+  assert.equal(f.night, false);
+  assert.equal(fallingFast(falling(now, 5.2, 0.06), now), null, 'slow fall');
+  assert.equal(fallingFast(falling(now, 6, -0.15), now), null, 'rising');
+  assert.equal(fallingFast(falling(now, 11, 0.15), now), null, 'still above 10: an expected fall after a correction');
+  assert.equal(fallingFast(falling(now - 10 * MIN, 5.2, 0.15), now), null, 'no recent reading');
+  assert.equal(fallingFast(falling(saTime('23:30'), 5, 0.2), saTime('23:30')).night, true);
+});
+
+test('falling-fast alert: day and night wording, once per fall, only to phones that chose it', async () => {
+  const env = makeEnv();
+  const a = await join(env, 'family');
+  const b = await join(env, 'family');
+  const { phone } = await subscribeTypes(env, a.token, ['high', 'fall']);
+  await subscribeTypes(env, b.token, ['high']);
+  assert.deepEqual((await call(env, 'GET', '/push', { key: b.token })).body.types, ['high']);
+
+  const day = saTime('15:00');
+  assert.equal(await checkFall(env, falling(day, 5.4, 0.15), day), 1, 'only the phone that chose falling-fast');
+  const msg = JSON.parse(await decrypt(phone, pushed[0].body));
+  assert.equal(msg.title, 'Falling fast: 5.4 mmol/L');
+  assert.match(msg.body, /Prepare for a possible low/);
+  assert.equal(await checkFall(env, falling(day + 4 * MIN, 4.8, 0.15), day + 4 * MIN), null, 'same fall: no second alert');
+
+  const env2 = makeEnv();
+  const c = await join(env2, 'admin');
+  const night = await subscribeTypes(env2, c.token, ['fall']);
+  const t = saTime('02:10');
+  await checkFall(env2, falling(t, 4.6, 0.2), t);
+  const nmsg = JSON.parse(await decrypt(night.phone, pushed.at(-1).body));
+  assert.match(nmsg.body, /lying on his sensor/);
+  assert.match(nmsg.body, /finger-prick/);
+});
+
+test('alert choices: unknown or empty lists are refused; older subscriptions get high only', async () => {
+  const env = makeEnv();
+  const { token, device } = await join(env, 'family');
+  assert.equal((await subscribeTypes(env, token, [])).res.status, 400);
+  assert.equal((await subscribeTypes(env, token, ['nope'])).res.status, 400);
+  await subscribe(env, token); // no types: as before this change
+  assert.deepEqual(JSON.parse(await env.LOG.get(`push:${device.id}`)).types, ['high']);
 });

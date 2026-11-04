@@ -1,5 +1,5 @@
-// High-glucose alerts on this phone (Web Push). The relay decides when to alert;
-// this only turns alerts on or off for this phone and sends a test.
+// Alerts on this phone (Web Push): high for 2.5 hours, and falling fast. The relay decides
+// when to alert; this only chooses which alerts this phone gets and sends a test.
 import { RELAY_URL } from './config.js';
 import { relayFetch } from './cgm.js';
 
@@ -19,14 +19,22 @@ export function alertSupport() {
 const registration = () => navigator.serviceWorker.getRegistration();
 const subscription = async () => (await registration())?.pushManager.getSubscription();
 
-// On only when this phone has a subscription and the relay has it too.
-export async function alertsOn() {
-  if (alertSupport() !== 'ok' || Notification.permission !== 'granted' || !(await subscription())) return false;
-  return (await relayFetch(RELAY_URL, '/push')).subscribed === true;
+// The alerts this phone gets ('high', 'fall'): only those the relay has for this phone's
+// subscription, and none if the browser's side is gone.
+export async function alertTypes() {
+  if (alertSupport() !== 'ok' || Notification.permission !== 'granted' || !(await subscription())) return [];
+  const res = await relayFetch(RELAY_URL, '/push');
+  return res.subscribed ? res.types || ['high'] : [];
 }
 
+// Choose which alerts this phone gets; none turns alerts off.
 // Must be called straight from a tap: iPhone only asks for permission then.
-export async function turnOnAlerts() {
+export async function setAlertTypes(types) {
+  if (!types.length) return turnOffAlerts();
+  return turnOnAlerts(types);
+}
+
+async function turnOnAlerts(types) {
   const permission = await Notification.requestPermission();
   if (permission !== 'granted') throw new Error('Notifications aren’t allowed for DiaBuddy. Allow them in the phone’s settings, then try again.');
   const { publicKey } = await relayFetch(RELAY_URL, '/push');
@@ -34,10 +42,10 @@ export async function turnOnAlerts() {
   if (!reg) throw new Error('Alerts need the app to be fully loaded. Close DiaBuddy, open it again, and try once more.');
   const sub = (await reg.pushManager.getSubscription())
     || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: unb64u(publicKey) });
-  await relayFetch(RELAY_URL, '/push', { method: 'PUT', body: sub.toJSON() });
+  await relayFetch(RELAY_URL, '/push', { method: 'PUT', body: { ...sub.toJSON(), types } });
 }
 
-export async function turnOffAlerts() {
+async function turnOffAlerts() {
   await relayFetch(RELAY_URL, '/push', { method: 'DELETE' });
   await (await subscription())?.unsubscribe();
 }
