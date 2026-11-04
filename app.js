@@ -2153,6 +2153,8 @@ function initEvents() {
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;
+    if (updateReady && !sheet.open) { location.reload(); return; }
+    navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {});
     renderGreeting();
     await loadMe();
     if (await loadSettings()) { renderSettings(); renderSetupBanner(); }
@@ -2163,6 +2165,18 @@ function initEvents() {
 }
 
 // ---------------------------------------------------------------- boot
+
+// Home Screen apps are rarely fully closed, so a new version could wait for days.
+// When one takes over, load it the next time DiaBuddy comes to the front (or now, from the toast).
+let updateReady = false;
+function watchForUpdates() {
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || updateReady) return; // first install: this page is already current
+    updateReady = true;
+    toast('DiaBuddy has been updated', { action: 'Reload', onAction: () => location.reload() });
+  });
+}
 
 async function boot() {
   const joinCode = consumeJoinCode();
@@ -2195,6 +2209,7 @@ async function boot() {
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
     navigator.serviceWorker.register('sw.js').catch(() => {});
+    watchForUpdates();
   }
 }
 
