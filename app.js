@@ -341,8 +341,10 @@ function getReading({ maxAgeMs = 60000 } = {}) {
 
 const readingAge = (r) => r.ageMinutes === 0 ? 'just now' : r.ageMinutes === 1 ? '1 min ago' : `${r.ageMinutes} min ago`;
 const sourceName = (r) => (r.source === 'libre' ? 'Libre' : 'Dexcom');
-// Above this a reading shows in orange: the top of the shaded target band on the trend.
-const HIGH_MMOL = 10;
+// From this a reading shows in orange (his team counts 14 as high).
+const HIGH_MMOL = 14;
+// Top of the shaded target range on the trend chart.
+const TARGET_TOP = 10;
 const readingValue = (r) => r.low ? 'LOW' : r.high ? 'HIGH' : fmt(r.mmol);
 
 function renderCgmCard() {
@@ -374,7 +376,7 @@ function renderCgmCard() {
   }
   const lowThreshold = state.settings?.hypoThreshold ?? 4;
   const isLow = r.low || r.mmol < lowThreshold;
-  const isHigh = r.high || r.mmol > HIGH_MMOL;
+  const isHigh = r.high || r.mmol >= HIGH_MMOL;
   const tone = isLow ? 'cgm-low' : isHigh ? 'cgm-high' : '';
   // A low reading gets a plain warning, not just a red number.
   const lowBanner = isLow
@@ -437,16 +439,16 @@ function trendChart(history = [], now = Date.now()) {
     : tenAgo ? `${signed(cur.mmol - tenAgo.mmol)} in ${Math.round((cur.t - tenAgo.t) / 60000)} min`
     : prev ? `${signed(cur.mmol - prev.mmol)} since ${clockTime(prev.time)}`
     : 'One reading in the last hour';
-  const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ') || 'no readings'}. ${change === 'No readings in the last hour' ? '' : change + '. '}Shaded band is ${low} to ${HIGH_MMOL} mmol/L.`;
+  const label = `Last hour: ${points.map((p) => `${fmt(p.mmol)} at ${clockTime(p.time)}`).join(', ') || 'no readings'}. ${change === 'No readings in the last hour' ? '' : change + '. '}Shaded band is ${low} to ${TARGET_TOP} mmol/L.`;
 
   return `<div class="trend" role="group" aria-label="Last hour of readings">
     <svg class="trend-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(label)}">
-      <rect class="trend-band" x="0" y="${y(HIGH_MMOL).toFixed(1)}" width="${W}" height="${(y(low) - y(HIGH_MMOL)).toFixed(1)}" rx="6" />
+      <rect class="trend-band" x="0" y="${y(TARGET_TOP).toFixed(1)}" width="${W}" height="${(y(low) - y(TARGET_TOP)).toFixed(1)}" rx="6" />
       <line class="trend-low" x1="0" x2="${W}" y1="${y(low).toFixed(1)}" y2="${y(low).toFixed(1)}" />
       ${gapRects}${lines}${dots}
     </svg>
     <div class="trend-caption"><span>1 h ago</span><strong>${esc(change)}</strong><span>now</span></div>
-    <p class="trend-key">Shaded: ${low}–${HIGH_MMOL} mmol/L · dashed line: low (${low})</p>
+    <p class="trend-key">Shaded: ${low}–${TARGET_TOP} mmol/L · dashed line: low (${low})</p>
   </div>`;
 }
 
