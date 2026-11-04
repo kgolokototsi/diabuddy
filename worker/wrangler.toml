@@ -7,4 +7,5 @@ DEXCOM_REGION = "ous"
 ALLOWED_ORIGIN = "https://kgolokototsi.github.io"
 
 # Secrets – set these with `npx wrangler secret put <NAME>` or in the dashboard:
-#   DEXCOM_USERNAME, DEXCOM_PASSWORD, FAMILY_KEY
+#   FAMILY_KEY, and for each sensor he uses:
+#   DEXCOM_USERNAME + DEXCOM_PASSWORD, LIBRE_EMAIL + LIBRE_PASSWORD (a LibreLinkUp follower)

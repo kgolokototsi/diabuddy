@@ -106,6 +106,27 @@ How the readings are used:
 
 To lock someone out, generate a new key and put it in Cloudflare as `FAMILY_KEY`. Then share the new family link with everyone who should keep access. If his Dexcom password changes, update `DEXCOM_PASSWORD` in Cloudflare.
 
+## Libre 2 readings
+
+When he wears a Libre 2 scanned with the **FreeStyle LibreLink phone app**, the same relay can read it through **LibreLinkUp** (Libre's follow service). If both Libre and Dexcom are set up, DiaBuddy uses whichever reading is newest and shows where it came from ("Libre · 1 min ago"). The same rules apply as for Dexcom: only readings 10 minutes old or newer fill in the BG.
+
+Libre works with a **follower** account, so his own LibreView password is never stored:
+
+1. **Make a follower account.** Install **LibreLinkUp** on your phone and create a new account with an email used only for this, for example `yourname+diabuddy@gmail.com`.
+2. **Invite it.** In his **FreeStyle LibreLink** app, go to Menu → **Connected Apps** → **LibreLinkUp** → **Add connection**, and enter that email.
+3. **Accept the invite** in LibreLinkUp, and accept any terms it shows. The relay can't read anything until the invite and terms are accepted.
+4. **Give the relay the follower login.** In a terminal, type each command exactly as written, then type the value when it asks **"Enter a secret value"**:
+   ```powershell
+   cd diabuddyworker
+   node node_moduleswranglerinwrangler.js secret put LIBRE_EMAIL
+   node node_moduleswranglerinwrangler.js secret put LIBRE_PASSWORD
+   ```
+5. Open DiaBuddy. Home should show his Libre reading.
+
+If LibreLinkUp later asks the follower account to accept new terms, readings stop and DiaBuddy says so. Sign in to LibreLinkUp with that account and accept them.
+
+> LibreLinkUp, like Dexcom Share, isn't officially offered for other apps to use, so it can stop working without warning. If it does, the app says so and you type the BG as before.
+
 ## How the dose is worked out
 
 ```
@@ -131,7 +152,7 @@ It's a static site with no build step: plain HTML, CSS and ES modules, hosted on
 | `foods.js` | Food search, Open Food Facts |
 | `admin.js` | GitHub read/write of the shared files |
 | `spring.js` | Spring animations |
-| `cgm.js`, `worker/worker.js` | Dexcom readings: app side, and the Cloudflare relay |
+| `cgm.js`, `worker/worker.js` | Glucose readings (Dexcom and Libre): app side, and the Cloudflare relay |
 | `sw.js` | Offline cache. Bump `VERSION` when you change app files. |
 | `data/foods.json` | Notebook + USDA foods, built by `scripts/build-foods.mjs` |
 | `data/za-products.json` | SA packaged products, built by `scripts/build-za-products.mjs` |

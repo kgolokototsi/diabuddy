@@ -1,4 +1,4 @@
-// Live Dexcom readings via the DiaBuddy relay (worker/worker.js).
+// Live glucose readings (Dexcom or Libre) via the DiaBuddy relay (worker/worker.js).
 // The relay URL is shared in settings.json; the family key is kept per device
 // and arrives either pasted or through a family link ending in #cgm=<key>.
 
@@ -35,12 +35,17 @@ const MESSAGES = {
   bad_key: 'The family key doesn’t match the relay. Ask the admin for a new family link.',
   dexcom_login_failed: 'Dexcom rejected the login saved in the relay. The admin needs to update it.',
   dexcom_unavailable: 'Dexcom isn’t answering right now.',
-  no_readings: 'Dexcom has no readings from the last 24 hours.',
-  not_configured: 'The relay is missing its Dexcom login or family key.',
+  dexcom_no_readings: 'Dexcom has no readings from the last 24 hours.',
+  libre_login_failed: 'LibreLinkUp rejected the login saved in the relay. The admin needs to update it.',
+  libre_accept_terms: 'LibreLinkUp wants its terms accepted. Sign in to the LibreLinkUp app with the DiaBuddy account and accept them.',
+  libre_no_connection: 'The LibreLinkUp account isn’t following him yet. Accept the invite in the LibreLinkUp app.',
+  libre_no_readings: 'Libre has no recent readings.',
+  libre_unavailable: 'LibreLinkUp isn’t answering right now.',
+  not_configured: 'The relay is missing its sensor login or family key.',
 };
 
 export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } = {}) {
-  if (!url) throw new Error('Dexcom readings are not set up.');
+  if (!url) throw new Error('Glucose readings are not set up.');
   if (!key) throw new Error('This device needs the family key.');
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -58,8 +63,8 @@ export async function fetchLatest(url, key = getCgmKey(), { timeoutMs = 8000 } =
     reading.ageMinutes = Math.max(0, Math.round((Date.now() - Date.parse(reading.time)) / 60000));
     return reading;
   } catch (err) {
-    if (err.name === 'AbortError') throw new Error('No answer from Dexcom. Check the connection.');
-    if (err instanceof TypeError) throw new Error('Can’t reach the Dexcom relay. Check the connection.');
+    if (err.name === 'AbortError') throw new Error('No answer from his sensor. Check the connection.');
+    if (err instanceof TypeError) throw new Error('Can’t reach the glucose relay. Check the connection.');
     throw err;
   } finally {
     clearTimeout(timer);

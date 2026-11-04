@@ -266,7 +266,7 @@ function refreshRows() {
   renderFoods();
 }
 
-// ---------------------------------------------------------------- Dexcom readings
+// ---------------------------------------------------------------- Glucose readings (Dexcom or Libre)
 
 const cgmUrl = () => state.settings?.cgmUrl || '';
 const cgmReady = () => Boolean(cgmUrl() && getCgmKey());
@@ -274,7 +274,7 @@ let cgmPending = null;
 
 // One request serves every screen; readings only change every 5 minutes.
 function getReading({ maxAgeMs = 60000 } = {}) {
-  if (!cgmReady()) return Promise.reject(new Error('Dexcom readings are not set up.'));
+  if (!cgmReady()) return Promise.reject(new Error('Glucose readings are not set up.'));
   if (state.cgm.reading && Date.now() - state.cgm.at < maxAgeMs) return Promise.resolve(state.cgm.reading);
   if (cgmPending) return cgmPending;
   state.cgm.loading = true;
@@ -287,6 +287,7 @@ function getReading({ maxAgeMs = 60000 } = {}) {
 }
 
 const readingAge = (r) => r.ageMinutes === 0 ? 'just now' : r.ageMinutes === 1 ? '1 min ago' : `${r.ageMinutes} min ago`;
+const sourceName = (r) => (r.source === 'libre' ? 'Libre' : 'Dexcom');
 const readingValue = (r) => r.low ? 'LOW' : r.high ? 'HIGH' : fmt(r.mmol);
 
 function renderCgmCard() {
@@ -294,23 +295,23 @@ function renderCgmCard() {
   if (!el) return;
   if (!cgmUrl()) { el.innerHTML = ''; return; }
   if (!getCgmKey()) {
-    el.innerHTML = section(null, `<button class="row" data-action="cgm-key"><span class="row-main"><span class="row-title row-link">Show his Dexcom readings here</span><span class="row-sub">Open the family link from the admin, or enter the family key.</span></span>${ICON.chevron}</button>`);
+    el.innerHTML = section(null, `<button class="row" data-action="cgm-key"><span class="row-main"><span class="row-title row-link">Show his glucose readings here</span><span class="row-sub">Open the family link from the admin, or enter the family key.</span></span>${ICON.chevron}</button>`);
     return;
   }
   const r = state.cgm.reading;
   if (!r) {
     el.innerHTML = section(null, state.cgm.error
-      ? `<button class="row" data-action="cgm-refresh"><span class="row-main"><span class="row-title">Dexcom</span><span class="row-sub">${esc(state.cgm.error)} Tap to try again.</span></span></button>`
-      : loadingRow('Getting his Dexcom reading…'));
+      ? `<button class="row" data-action="cgm-refresh"><span class="row-main"><span class="row-title">Glucose reading</span><span class="row-sub">${esc(state.cgm.error)} Tap to try again.</span></span></button>`
+      : loadingRow('Getting his glucose reading…'));
     return;
   }
   const stale = r.ageMinutes > FRESH_MINUTES;
   const lowThreshold = state.settings?.hypoThreshold ?? 4;
   const tone = r.low || r.mmol < lowThreshold ? 'cgm-low' : stale ? 'cgm-stale' : '';
-  el.innerHTML = section(null, `<button class="row cgm-row ${tone}" data-action="cgm-refresh" aria-label="Dexcom ${readingValue(r)} mmol/L, ${esc(r.trendText)}, ${readingAge(r)}. Tap to refresh.">
+  el.innerHTML = section(null, `<button class="row cgm-row ${tone}" data-action="cgm-refresh" aria-label="${sourceName(r)} ${readingValue(r)} mmol/L, ${esc(r.trendText)}, ${readingAge(r)}. Tap to refresh.">
     <span class="cgm-value">${readingValue(r)}<span class="cgm-arrow" aria-hidden="true">${r.arrow}</span></span>
     <span class="row-main"><span class="row-title">mmol/L · ${esc(r.trendText)}</span>
-      <span class="row-sub">Dexcom · ${readingAge(r)}${stale ? ' · too old to use for a dose' : ''}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
+      <span class="row-sub">${sourceName(r)} · ${readingAge(r)}${stale ? ' · too old to use for a dose' : ''}${state.cgm.error ? ' · couldn’t update' : ''}</span></span>
   </button>`);
 }
 
@@ -457,7 +458,7 @@ function cgmRows() {
     : r ? `${readingValue(r)} ${r.arrow} · ${readingAge(r)}` : 'Connecting…';
   rows.push(settingRow('Status', status));
   if (state.cgm.error && getCgmKey()) rows.push(`<div class="row"><span class="row-main"><span class="row-sub">${esc(state.cgm.error)}</span></span></div>`);
-  if (isAdmin()) rows.push(`<button class="row" data-action="cgm-setup"><span class="row-main"><span class="row-title row-link">${cgmUrl() ? 'Change Dexcom set-up' : 'Set up Dexcom readings'}</span></span>${ICON.chevron}</button>`);
+  if (isAdmin()) rows.push(`<button class="row" data-action="cgm-setup"><span class="row-main"><span class="row-title row-link">${cgmUrl() ? 'Change glucose readings set-up' : 'Set up glucose readings'}</span></span>${ICON.chevron}</button>`);
   if (isAdmin() && cgmReady()) rows.push(`<button class="row" data-action="cgm-share"><span class="row-main"><span class="row-title row-link">Share the family link</span><span class="row-sub">Send it to family phones so they see his readings</span></span></button>`);
   if (!isAdmin() && cgmUrl() && !getCgmKey()) rows.push(`<button class="row" data-action="cgm-key"><span class="row-main"><span class="row-title row-link">Enter the family key</span></span>${ICON.chevron}</button>`);
   if (getCgmKey()) rows.push(`<button class="row" data-action="cgm-forget"><span class="row-main"><span class="row-title row-danger">Stop showing readings on this phone</span></span></button>`);
@@ -493,7 +494,7 @@ function renderSettings() {
   el.innerHTML = `
     ${s && !isConfigured(s) ? `<div class="banner banner-warn">${ICON.warn}<div><strong>Not set up yet</strong>${isAdmin() ? 'Tap “Change dose settings” and enter the numbers from his diabetes team.' : 'Ask the admin to set his carb ratio, correction factor and target.'}</div></div>` : ''}
     ${section('💛 His numbers', doseRows, `${esc(loadedFrom)} Last changed ${fmtDate(s?.updatedAt)}. Only the admin can change these.`)}
-    ${section('Dexcom readings', cgmRows(), cgmUrl() ? 'Readings come from Dexcom Share through the family relay. Each phone needs the family link once.' : '')}
+    ${section('📈 Glucose readings', cgmRows(), cgmUrl() ? 'Readings come from his Libre or Dexcom (whichever is newest) through the family relay. Each phone needs the family link once.' : '')}
     ${section('Admin', adminRows, isAdmin() ? 'Saving updates every family phone the next time DiaBuddy opens.' : '')}
     ${section('How the dose is worked out', `
       <div class="row"><span class="row-main"><span class="row-title">Food dose</span><span class="row-sub">Carbs ÷ carb ratio</span></span></div>
@@ -1029,7 +1030,7 @@ function openDose({ correctionOnly = false } = {}) {
         }
       };
 
-      // Fill in BG from Dexcom when the reading is fresh enough to trust.
+      // Fill in BG from the sensor when the reading is fresh enough to trust.
       let cgmFilled = null;
       let cgmReading = null;
       const note = $('#cgm-note', root);
@@ -1039,10 +1040,10 @@ function openDose({ correctionOnly = false } = {}) {
         note.hidden = false;
         const filled = cgmFilled !== null && input.value === cgmFilled;
         let text;
-        if (r.low || r.high) text = `Dexcom shows ${readingValue(r)}. Use a finger-prick reading.`;
-        else if (r.ageMinutes > FRESH_MINUTES) text = `Last Dexcom reading was ${readingAge(r)} (${fmt(r.mmol)}). Too old to use. Check the Dexcom app or do a finger-prick.`;
-        else if (filled) text = `From Dexcom ${r.arrow} ${r.trendText} · ${readingAge(r)}. Change it if a finger-prick says otherwise.`;
-        else text = `Dexcom says ${fmt(r.mmol)} ${r.arrow} (${readingAge(r)}). You typed your own reading.`;
+        if (r.low || r.high) text = `${sourceName(r)} shows ${readingValue(r)}. Use a finger-prick reading.`;
+        else if (r.ageMinutes > FRESH_MINUTES) text = `Last ${sourceName(r)} reading was ${readingAge(r)} (${fmt(r.mmol)}). Too old to use. Check his ${sourceName(r)} app or do a finger-prick.`;
+        else if (filled) text = `From ${sourceName(r)} ${r.arrow} ${r.trendText} · ${readingAge(r)}. Change it if a finger-prick says otherwise.`;
+        else text = `${sourceName(r)} says ${fmt(r.mmol)} ${r.arrow} (${readingAge(r)}). You typed your own reading.`;
         note.innerHTML = `<span class="row-sub">${esc(text)}</span>`;
         $('#cgm-warn', root).innerHTML = r.fast && !r.low && !r.high && r.ageMinutes <= FRESH_MINUTES
           ? `<div class="banner banner-warn">${ICON.warn}<div><strong>BG is ${esc(r.trendText)} ${r.arrow}</strong>Double-check before giving insulin.</div></div>`
@@ -1050,7 +1051,7 @@ function openDose({ correctionOnly = false } = {}) {
       };
       if (cgmReady()) {
         note.hidden = false;
-        note.innerHTML = '<span class="row-sub">Getting his Dexcom reading…</span>';
+        note.innerHTML = '<span class="row-sub">Getting his glucose reading…</span>';
         getReading().then((r) => {
           if (!root.isConnected) return;
           cgmReading = r;
@@ -1309,13 +1310,13 @@ async function removeFamilyFood(food, btn) {
   }
 }
 
-// ---------------------------------------------------------------- Dexcom set-up
+// ---------------------------------------------------------------- Glucose readings set-up
 
 async function openCgmSetup() {
   await loadSettings();
   const key = getCgmKey();
   openSheet(`
-    ${sheetHeader('Dexcom readings', 'Connect the relay running on your Cloudflare account.')}
+    ${sheetHeader('Glucose readings', 'Connect the relay running on your Cloudflare account.')}
     <section class="section"><div class="group">
       <div class="row field-row"><label for="cgm-url">Relay address</label><input id="cgm-url" class="wide" inputmode="url" value="${esc(cgmUrl())}" placeholder="https://diabuddy-dexcom….workers.dev" autocomplete="off" spellcheck="false"></div>
       <div class="row field-row"><label for="cgm-k">Family key</label><input id="cgm-k" class="wide" value="${esc(key)}" placeholder="Tap Generate" autocomplete="off" spellcheck="false"></div>
@@ -1341,7 +1342,7 @@ async function openCgmSetup() {
         const v = values();
         const problem = valid(v);
         if (problem) { status.textContent = problem; return; }
-        status.textContent = 'Asking Dexcom…';
+        status.textContent = 'Asking his sensor…';
         try {
           const r = await fetchLatest(v.url, v.key);
           status.textContent = `Working: ${readingValue(r)} mmol/L ${r.arrow}, ${readingAge(r)}.`;
@@ -1360,7 +1361,7 @@ async function openCgmSetup() {
           if (v.url !== cgmUrl()) {
             await loadSettings();
             const next = { ...state.settings, cgmUrl: v.url };
-            await writeShared('settings.json', next, 'Set Dexcom relay address');
+            await writeShared('settings.json', next, 'Set glucose relay address');
             state.settings = next;
             store.set('settings', { data: next, fetchedAt: Date.now() });
           }
@@ -1370,7 +1371,7 @@ async function openCgmSetup() {
           renderSettings();
           renderCgmCard();
           refreshCgm();
-          toast('Dexcom readings set up');
+          toast('Glucose readings set up');
         } catch (err) {
           status.textContent = err.message;
           btn.disabled = false;
@@ -1383,7 +1384,7 @@ async function openCgmSetup() {
 
 function openCgmKeyEntry() {
   openSheet(`
-    ${sheetHeader('Family key', 'Lets this phone show his Dexcom readings.')}
+    ${sheetHeader('Family key', 'Lets this phone show his glucose readings.')}
     <section class="section"><div class="group">
       <div class="row field-row"><label for="fk">Key</label><input id="fk" class="wide" placeholder="Paste the key" autocomplete="off" spellcheck="false"></div>
     </div><p class="section-footer" id="fk-status">Easier: open the family link the admin sent you, and it sets this up by itself.</p></section>
@@ -1413,7 +1414,7 @@ async function shareFamilyLink() {
   const link = familyLink(getCgmKey());
   try {
     if (navigator.share) {
-      await navigator.share({ title: 'DiaBuddy', text: 'DiaBuddy with his Dexcom readings. Open this once on your phone:', url: link });
+      await navigator.share({ title: 'DiaBuddy', text: 'DiaBuddy with his glucose readings. Open this once on your phone:', url: link });
       return;
     }
   } catch (err) {
@@ -1525,7 +1526,7 @@ async function boot() {
   renderSettings();
   renderCgmCard();
   refreshCgm();
-  if (linked) toast(cgmUrl() ? 'His Dexcom readings are on this phone now' : 'Family key saved');
+  if (linked) toast(cgmUrl() ? 'His glucose readings are on this phone now' : 'Family key saved');
   // The family link opened in a tab where DiaBuddy is already running.
   addEventListener('hashchange', () => {
     if (!consumeLinkKey()) return;
@@ -1533,9 +1534,9 @@ async function boot() {
     renderCgmCard();
     renderSettings();
     refreshCgm();
-    toast('His Dexcom readings are on this phone now');
+    toast('His glucose readings are on this phone now');
   });
-  // Dexcom gets a new reading every 5 minutes; check a little more often than that.
+  // Libre updates every minute and Dexcom every 5; check every 2.5 minutes.
   setInterval(() => { if (document.visibilityState === 'visible') refreshCgm(); }, 150000);
 
   if ('serviceWorker' in navigator && location.protocol === 'https:') {
