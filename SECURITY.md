@@ -36,7 +36,7 @@ The repo was public before 4 November 2026. Its Git history still contains old `
   - **Admin:** everything below, plus dose settings, phones, invites and data deletion
   - **Family:** readings, log, foods, label photos
   - **View only (TV):** read only
-  - **School (his teacher):** his current reading, today's and upcoming school lunches with the dose settings needed to work out the dose, recording each break's lunch dose or a 15 g low treatment, and alerts. It can't read his log, Insights, settings history or family foods, can't plan lunches, and can't add any other log entry.
+  - **School (his teacher):** his current reading, today's school lunches (first and second break) with the dose settings needed to work out the dose, recording each break's lunch dose or a 15 g low treatment, and alerts. It can't read his log, Insights, settings history or family foods, can't plan lunches, and can't add any other log entry.
 - **Enforcement:** roles are checked by the relay on every request. Hiding buttons in the app is only a convenience.
 - **Removing access:** an admin can remove any phone, and any phone can disconnect itself. Removal takes effect on the next request.
 - **Old shared keys:** `FAMILY_KEY` and `TV_KEY` are accepted, as Family and TV, only until an admin taps **Settings → Phones → Turn off the old shared link**. After that, delete both secrets in Cloudflare.
