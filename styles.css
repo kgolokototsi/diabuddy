@@ -1,5 +1,6 @@
-/* DiaBuddy – quiet light: graphite on soft grey, Inter, one deep-red brand mark.
-   Red is kept for warnings, so buttons and the dose card are graphite. */
+/* DiaBuddy – quiet light: graphite on soft grey, Inter, one deep-red brand mark,
+   and an ocean-blue accent for controls. Red, orange and green are kept for his
+   readings and warnings, so the accent is blue. */
 
 @font-face {
   font-family: "Inter";
@@ -20,9 +21,10 @@
   --sep: rgba(0, 0, 0, 0.08);
   --fill: rgba(0, 0, 0, 0.04);
   --fill-2: rgba(0, 0, 0, 0.08);
-  --tint: #1d1d1f;
-  --tint-soft: rgba(0, 0, 0, 0.05);
+  --tint: #2563c9; /* the accent: 5.7:1 on cards, white text on it 5.7:1 */
+  --tint-soft: rgba(37, 99, 201, 0.09);
   --on-tint: #ffffff;
+  --wash: rgba(37, 99, 201, 0.08); /* the soft blue at the top of each screen */
   --brand: #b5122b;
   --chart: #3a6ea5;
   --green: #1f7a45;
@@ -71,9 +73,10 @@
     --sep: rgba(255, 255, 255, 0.1);
     --fill: rgba(255, 255, 255, 0.06);
     --fill-2: rgba(255, 255, 255, 0.12);
-    --tint: #f5f5f7;
-    --tint-soft: rgba(255, 255, 255, 0.08);
-    --on-tint: #1d1d1f;
+    --tint: #6aa0ff; /* 5.4:1 on cards, 4.6:1 on raised cards */
+    --tint-soft: rgba(106, 160, 255, 0.14);
+    --on-tint: #0d1b33;
+    --wash: rgba(106, 160, 255, 0.12);
     --brand: #ff5a6a;
     --chart: #5b8fd6;
     --green: #4cd27e;
@@ -137,6 +140,8 @@ body.has-tray .screen { padding-bottom: calc(var(--tabbar-h) + var(--safe-b) + v
 @keyframes screen-in { from { opacity: 0; } }
 
 .nav { padding: 12px calc(var(--gutter) + 4px) 8px; }
+/* A soft wash of the accent behind each screen's title, fading into the page. */
+.screen { background: linear-gradient(var(--wash), transparent 220px) no-repeat; }
 .eyebrow {
   margin: 0;
   font-size: 0.8125rem;
@@ -716,6 +721,7 @@ body[data-role="school"] .screen { padding-bottom: calc(var(--safe-b) + 32px); }
 .sheet .group, .sheet .row { background: var(--card-raised); }
 @media (prefers-color-scheme: dark) {
   .sheet .segmented button[aria-pressed="true"] { background: #636366; }
+  .segmented button[aria-pressed="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tint) 55%, transparent); }
 }
 #amt-input { text-align: center; }
 .sheet-grab { flex: none; padding: 6px 0 0; touch-action: none; cursor: grab; }
@@ -795,7 +801,7 @@ body[data-role="school"] .screen { padding-bottom: calc(var(--safe-b) + 32px); }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18), 0 0 1px rgba(0, 0, 0, 0.2);
   transition: transform 260ms cubic-bezier(0.3, 1.3, 0.5, 1);
 }
-.switch:checked { background: #34c759; }
+.switch:checked { background: var(--tint); }
 .switch:checked::after { transform: translateX(20px); }
 .switch:focus-visible { outline: 2px solid var(--tint); outline-offset: 2px; }
 
@@ -958,7 +964,7 @@ body.has-tray .toast { bottom: calc(var(--tabbar-h) + var(--safe-b) + var(--tray
 .group > .row:not(:has(.food-avatar))::before { left: 16px; }
 .row-title { font-weight: 500; letter-spacing: -0.005em; }
 .row-sub { font-size: 0.8125rem; }
-.row-link { color: var(--label); font-weight: 550; }
+.row-link { color: var(--tint); font-weight: 550; }
 
 /* Small caps-style section labels, the way premium apps group content */
 .section-header {
@@ -993,7 +999,7 @@ body.has-tray .toast { bottom: calc(var(--tabbar-h) + var(--safe-b) + var(--tray
 .chip[aria-selected="true"] { background: var(--tint); color: var(--on-tint); border-color: transparent; }
 
 .btn { border-radius: 14px; font-weight: 600; letter-spacing: -0.005em; }
-.btn-secondary { background: var(--fill-2); color: var(--label); }
+.btn-secondary { background: var(--tint-soft); color: var(--tint); }
 .btn-plain { color: var(--label-2); font-weight: 500; }
 .btn-danger { background: var(--red-soft); color: var(--red); }
 .btn-compact { border-radius: 12px; font-weight: 600; }
@@ -1008,14 +1014,14 @@ body.has-tray .toast { bottom: calc(var(--tabbar-h) + var(--safe-b) + var(--tray
 .stepper { border-radius: 10px; }
 .stepper button:first-child, .stepper button:last-child { border-radius: 10px; }
 
-.switch:checked { background: #34a35a; }
+.switch:checked { background: var(--tint); } /* green is for in range */
 
 .tray, .sheet { border-radius: 22px 22px 0 0; }
 .tray-carbs { font-weight: 650; letter-spacing: -0.02em; }
 .tab { font-size: 0.6875rem; font-weight: 550; }
-.tab[aria-current="page"] { color: var(--label); }
+.tab[aria-current="page"] { color: var(--tint); }
 
-/* The dose: graphite card, the one bold element on the screen */
+/* The dose: the accent card, the one bold element on the screen */
 .dose-result { border-radius: 20px; background: var(--tint); color: var(--on-tint); }
 .dose-label { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.75rem; font-weight: 600; opacity: 0.7; }
 .dose-value { font-weight: 650; letter-spacing: -0.04em; }
@@ -1024,7 +1030,7 @@ body.has-tray .toast { bottom: calc(var(--tabbar-h) + var(--safe-b) + var(--tray
 .field-row input, .field-row select { color: var(--label); }
 .cgm-value { font-weight: 650; letter-spacing: -0.03em; }
 .cgm-arrow { color: var(--label-2); }
-.segmented button[aria-pressed="true"] { font-weight: 600; }
+.segmented button[aria-pressed="true"] { font-weight: 600; color: var(--tint); }
 
 .trend-chart polyline { stroke: var(--chart); }
 .trend-chart circle { fill: var(--chart); }
@@ -1059,7 +1065,7 @@ body.has-tray .toast { bottom: calc(var(--tabbar-h) + var(--safe-b) + var(--tray
   height: 40px;
   border-radius: 12px;
   font-size: 1.25rem;
-  background: var(--fill);
+  background: var(--tint-soft);
 }
 .tile-text { display: flex; flex-direction: column; gap: 2px; }
 .tile-title { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.01em; }
