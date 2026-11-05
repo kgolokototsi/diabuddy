@@ -1,4 +1,4 @@
-// School lunch: his parents plan each day's lunch (lunch:<SA date>); his teacher's phone
+// School lunch: his parents plan today's lunch (lunch:<SA date>); his teacher's phone
 // sees it with the dose, sets how much he ate and records the dose given. The relay works
 // out the carbs and the dose itself, so the teacher's phone can only record what was planned.
 
@@ -8,9 +8,8 @@ import { cleanEvent, eventKey, listEvents, num, str, EVENT_TTL_S } from './event
 import { invalidateDay, saDate } from './insights.js';
 import { readSettings } from './settings.js';
 
-const LUNCH_TTL_S = 45 * 24 * 3600;
+const LUNCH_TTL_S = 45 * 24 * 3600; // kept a while after the day, as a record of what was dosed
 const MAX_ITEMS = 12;
-const AHEAD_DAYS = 30;
 const UNDO_MS = 15 * 60000; // the teacher can undo their own entry this long; parents any time
 const RECENT_INSULIN_MS = 3 * 3600000;
 const FRACTIONS = [0, 0.25, 0.5, 0.75, 1];
@@ -18,7 +17,6 @@ export const LOW_TREATMENT_G = 15;
 const DOSE_FIELDS = ['icr', 'cf', 'targetBg', 'roundTo', 'maxDose', 'hypoThreshold', 'negativeCorrection', 'updatedAt'];
 
 const lunchKey = (date) => `lunch:${date}`;
-const addDays = (date, n) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 const newId = () => crypto.getRandomValues(new Uint32Array(2)).reduce((s, n) => s + n.toString(36), '').slice(0, 12).padEnd(8, '0');
 
 export function cleanLunch(body, date) {
@@ -28,7 +26,13 @@ export function cleanLunch(body, date) {
     const name = str(it?.name, 60)?.trim();
     const carbs = num(it?.carbs, 0, 200);
     if (!name || carbs == null) return null;
-    items.push({ id: /^[a-z0-9]{4,16}$/.test(it.id) ? it.id : newId(), name, carbs: Math.round(carbs * 10) / 10 });
+    const item = { id: /^[a-z0-9]{4,16}$/.test(it.id) ? it.id : newId(), name, carbs: Math.round(carbs * 10) / 10 };
+    // From the food database: the serving and how many, for the screens.
+    const serving = str(it.serving, 60)?.trim();
+    const servings = num(it.servings, 0.25, 20);
+    const perServing = num(it.perServing, 0, 200);
+    if (serving && servings != null && perServing != null) Object.assign(item, { serving, servings, perServing });
+    items.push(item);
   }
   if (!items.length) return null;
   return { date, items, note: str(body.note, 200)?.trim() || null };
@@ -51,11 +55,6 @@ async function recentInsulin(env, now) {
   return (await listEvents(env, 1)).some((e) => e.insulinGiven > 0 && now - Date.parse(e.at) <= RECENT_INSULIN_MS);
 }
 
-async function readLunches(env, today) {
-  const page = await env.LOG.list({ prefix: 'lunch:' });
-  const keys = page.keys.map((k) => k.name).filter((k) => k.slice(6) >= today && k.slice(6) <= addDays(today, AHEAD_DAYS)).sort();
-  return (await Promise.all(keys.map((k) => env.LOG.get(k, 'json')))).filter(Boolean);
-}
 
 export async function handleSchool(request, env, device, url, cors, json, readJson, now = Date.now()) {
   const plan = can(device, 'lunch');
@@ -66,7 +65,8 @@ export async function handleSchool(request, env, device, url, cors, json, readJs
 
   if (parts.length === 1 && method === 'GET') {
     const settings = await readSettings(env);
-    return json({ today, lunches: await readLunches(env, today), settings: doseSettings(settings), recentInsulin: await recentInsulin(env, now) }, 200, cors);
+    const lunch = await env.LOG.get(lunchKey(today), 'json');
+    return json({ today, lunches: lunch ? [lunch] : [], settings: doseSettings(settings), recentInsulin: await recentInsulin(env, now) }, 200, cors);
   }
 
   // Undo an entry made from the lunch screen.
@@ -93,7 +93,7 @@ export async function handleSchool(request, env, device, url, cors, json, readJs
 
   if (parts.length === 2 && method === 'PUT') {
     if (!plan) return json({ error: 'not_allowed' }, 403, cors);
-    if (date < today || date > addDays(today, AHEAD_DAYS)) return json({ error: 'bad_date' }, 400, cors);
+    if (date !== today) return json({ error: 'bad_date' }, 400, cors); // today's lunch only
     if (existing?.recorded) return json({ error: 'already_recorded', recorded: existing.recorded }, 409, cors);
     const { body, bad, tooLarge } = await readJson(request, 6000);
     const lunch = bad || tooLarge ? null : cleanLunch(body, date);

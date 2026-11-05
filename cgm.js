@@ -63,7 +63,7 @@ const MESSAGES = {
   no_lunch: 'There’s no lunch planned for today.',
   bg_low: 'He’s low. Treat the low first; don’t give insulin now.',
   bad_lunch: 'Each item needs a name and carbs (0–200 g), up to 12 items.',
-  bad_date: 'That day can’t be planned. Pick a day from today to 30 days ahead.',
+  bad_date: 'Only today’s lunch can be planned.',
   not_allowed: 'This phone can’t do that.',
   settings_missing: 'His carb ratio isn’t set yet. The admin needs to set it in Settings.',
   alerts_need_invite: 'Connect this phone with an invite from the admin to get alerts.',

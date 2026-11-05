@@ -426,6 +426,7 @@ body[data-role="school"] .screen { padding-bottom: calc(var(--safe-b) + 32px); }
 .lunch-empty { color: var(--label-3); }
 .lunch-given .row-title { font-weight: 600; }
 .lunch-edit { gap: 8px; }
+.lunch-search { margin: 0 var(--gutter); }
 .lunch-edit input[data-field="name"] { text-align: left; color: var(--label); min-width: 0; }
 .lunch-edit input[data-field="carbs"] { flex: none; }
 .icon-btn {

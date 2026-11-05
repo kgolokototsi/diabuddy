@@ -63,11 +63,11 @@ test('the teacher\'s phone sees only his reading, the lunch and alerts', async (
   assert.equal((await call(env, 'GET', '/school', { key: tv.token })).status, 403);
 });
 
-test('parents plan lunches from today up to 30 days ahead; bad lunches are refused', async () => {
+test('parents plan only today\'s lunch; bad lunches are refused', async () => {
   const { env, parent, teacher } = await setUp();
-  assert.equal((await call(env, 'PUT', `/school/${plusDays(1)}`, { key: parent, body: LUNCH })).status, 200);
+  assert.equal((await call(env, 'PUT', `/school/${today()}`, { key: parent, body: LUNCH })).status, 200);
   assert.equal((await call(env, 'PUT', `/school/${plusDays(-1)}`, { key: parent, body: LUNCH })).status, 400, 'past day');
-  assert.equal((await call(env, 'PUT', `/school/${plusDays(31)}`, { key: parent, body: LUNCH })).status, 400, 'too far ahead');
+  assert.equal((await call(env, 'PUT', `/school/${plusDays(1)}`, { key: parent, body: LUNCH })).status, 400, 'tomorrow');
   assert.equal((await call(env, 'PUT', `/school/${today()}`, { key: parent, body: { items: [] } })).status, 400, 'no items');
   assert.equal((await call(env, 'PUT', `/school/${today()}`, { key: parent, body: { items: [{ name: 'Cake', carbs: 500 }] } })).status, 400, 'carbs out of range');
   assert.equal((await call(env, 'PUT', `/school/${today()}`, { key: parent, body: { items: Array.from({ length: 13 }, () => ({ name: 'x', carbs: 1 })) } })).status, 400, 'too many items');
@@ -115,7 +115,6 @@ test('double-dose guard: a second record needs confirmation; a recorded lunch ca
 
 test('only today\'s lunch can be recorded, and not when he is low', async () => {
   const { env, parent, teacher } = await setUp();
-  await call(env, 'PUT', `/school/${plusDays(1)}`, { key: parent, body: LUNCH });
   assert.equal((await call(env, 'POST', `/school/${plusDays(1)}/record`, { key: teacher, body: { bg: 6, insulinGiven: 3 } })).body.error, 'not_today');
   assert.equal((await call(env, 'POST', `/school/${today()}/record`, { key: teacher, body: { bg: 6, insulinGiven: 3 } })).body.error, 'no_lunch');
   await call(env, 'PUT', `/school/${today()}`, { key: parent, body: LUNCH });
@@ -159,4 +158,7 @@ test('lunch and portion helpers', () => {
   assert.equal(l.items[0].name, '<b>Wrap</b>', 'stored as text; the app escapes it');
   assert.equal(eatenCarbs(l, { [l.items[0].id]: 0.75 }).carbs, 15);
   assert.equal(eatenCarbs(l, { [l.items[0].id]: 2 }), null);
+  const food = cleanLunch({ items: [{ name: 'Weet-Bix', carbs: 42.6, serving: '2 biscuits (45 g)', servings: 1.5, perServing: 28.4 }, { name: 'Bad', carbs: 1, serving: 'x', servings: 99, perServing: 1 }] }, '2026-11-06');
+  assert.deepEqual([food.items[0].serving, food.items[0].servings, food.items[0].perServing], ['2 biscuits (45 g)', 1.5, 28.4], 'database item keeps its serving');
+  assert.equal(food.items[1].serving, undefined, 'out-of-range servings are dropped');
 });

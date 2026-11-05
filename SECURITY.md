@@ -19,7 +19,7 @@ DiaBuddy handles a child's glucose readings, insulin doses and dose settings. Un
 | Insights: one summary per day (time-of-day percentages, meal/low/correction response curves, 15-minute samples) | Cloudflare KV (`insights-day:<date>`, `insights-done`) | Connected phones | 120 days, like the readings |
 | His 30/60-minute forecast model (daily sums for fitting, the last 20 days of 5-minute training rows, the fitted model) | Cloudflare KV (`fcsum:<date>`, `fcrows:<date>`, `forecast-model`); the model is also cached on each phone | Connected phones | Sums 120 days, rows 20 days |
 | Weekly summary written by Claude | Cloudflare KV (`insights-summary:<week>`) | Connected phones | 1 year |
-| School lunches (items, carbs, a note for his teacher, and the dose recorded) | Cloudflare KV (`lunch:<date>`) | Connected phones except the TV; only Admin and Family phones can change them | 45 days |
+| School lunches (items with carbs and servings, a note for his teacher, and the dose recorded); only today's can be planned | Cloudflare KV (`lunch:<date>`) | Connected phones except the TV; only Admin and Family phones can change them | 45 days |
 | Alert subscriptions (a phone's push address and keys) | Cloudflare KV (`push:<device id>`, `high-alert`) | Only the relay | Until the phone turns alerts off or is removed |
 | Dexcom / LibreLinkUp logins, Anthropic API key, alert signing key (`VAPID_PRIVATE_JWK`) | Cloudflare Worker secrets (encrypted) | Only the relay code | Until rotated |
 | Each phone's own key, cached settings, meal in progress | That phone's browser storage | That phone | Until "Disconnect this phone" |

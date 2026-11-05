@@ -34,9 +34,9 @@ Other things you can do:
 
 ### School lunch
 
-The **School** tab (Admin and Family phones) is where you plan his school lunch, and where his teacher's phone gets it with the dose.
+The **School** tab (Admin and Family phones) is where you plan today's school lunch, and where his teacher's phone gets it with the dose.
 
-- **Plan ahead:** tap one of the next 10 school days and add what's in his lunchbox, each item with its carbs. You can also build the lunch in Foods and use **Save as school lunch…** on the meal tray, or **Copy from** another day. Add a note for his teacher if you like. You can change or remove a day's lunch until its dose is recorded.
+- **Plan today's lunch:** tap **Plan today's lunch** and search the foods list (the same foods and SA packaged products as the Foods tab), with − / + for half servings, or type in an item that isn't listed. You can also build it in Foods and use **Add to today's school lunch** on the meal tray. Add a note for his teacher if you like. You can change or remove it until its dose is recorded.
 - **His teacher's phone:** invite it with **School** access (Settings → Phones → Invite a phone). It shows one screen:
   - his reading and trend
   - today's lunch, with **All · ¾ · ½ · ¼ · None** for each item

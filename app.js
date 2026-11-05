@@ -1245,7 +1245,7 @@ function initInsights() {
 }
 
 // ---------------------------------------------------------------- School lunch
-// His parents plan each day's lunch. His teacher's phone (role "school") shows only this
+// His parents plan today's lunch. His teacher's phone (role "school") shows only this
 // screen: his reading, today's lunch with how much he ate, the dose, and recording it.
 // The relay works the carbs and dose out again when it's recorded (worker/school.js).
 
@@ -1258,14 +1258,7 @@ const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
 const dayName = (date) => new Date(`${date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 const lunchCarbs = (lunch, eaten = {}) => Math.round(lunch.items.reduce((s, i) => s + i.carbs * (eaten[i.id] ?? 1), 0) * 10) / 10;
 const todayLunch = () => state.school.data?.lunches.find((l) => l.date === state.school.data.today) || null;
-const lunchOn = (date) => state.school.data?.lunches.find((l) => l.date === date) || null;
-
-// The next n weekdays, starting today.
-function schoolDays(n = 10, from = new Date()) {
-  const out = [];
-  for (const d = new Date(from); out.length < n; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) out.push(localDate(d));
-  return out;
-}
+const todayDate = () => state.school.data?.today || localDate(new Date());
 
 // Shows the School tab to parents, and only the lunch screen to his teacher.
 function applyRole() {
@@ -1304,7 +1297,7 @@ function renderSchool() {
   const el = $('#school-body');
   const st = state.school;
   $('#school-title').textContent = isTeacher() ? 'Lunch' : 'School';
-  $('#school-sub').textContent = isTeacher() ? 'His lunch today, how much he ate, and his dose' : 'Plan his lunch; his teacher sees it with the dose';
+  $('#school-sub').textContent = isTeacher() ? 'His lunch today, how much he ate, and his dose' : 'Plan his lunch for today; his teacher sees it with the dose';
   if (!st.data) {
     el.innerHTML = st.error
       ? section(null, `<button class="row" data-school="reload"><span class="row-main"><span class="row-title">Couldn’t load his lunches</span><span class="row-sub">${esc(st.error)} Tap to try again.</span></span></button>`)
@@ -1315,22 +1308,24 @@ function renderSchool() {
   el.innerHTML = [
     isTeacher() ? '<div data-cgm-card></div>' : '',
     lunchTodayHtml(todayLunch()),
-    canPlanLunch() ? lunchPlanHtml() : lunchComingHtml(),
     isTeacher() ? section('Alerts', alertRows(), 'These add to his CGM app’s alarms; they don’t replace them.') + section('This phone', phoneRows()) : '',
   ].join('');
   if (isTeacher()) renderCgmCard();
   paintLunchDose();
 }
 
-const portionLine = (it, f) => f === 1 ? `${fmt(it.carbs)} g carbs` : `${fmt(it.carbs * f)} of ${fmt(it.carbs)} g carbs`;
+const servingText = (it) => (it.serving ? `${fmt(it.servings ?? 1, 2)} × ${it.serving} · ` : '');
+const portionLine = (it, f) => servingText(it) + (f === 1 ? `${fmt(it.carbs)} g carbs` : `${fmt(it.carbs * f)} of ${fmt(it.carbs)} g carbs`);
 
 function lunchTodayHtml(lunch) {
   const st = state.school;
   const title = `Today · ${dayName(st.data.today)}`;
   const lowRow = `<button class="row" data-school="low"><span class="row-main"><span class="row-title row-link">Record ${LOW_TREATMENT_G} g low treatment</span><span class="row-sub">15-15 rule: ${LOW_TREATMENT_G} g of fast carbs, recheck in 15 minutes, repeat if he’s still low.</span></span></button>`;
   const note = lunch?.note ? `<div class="banner banner-info">${ICON.info}<div><strong>Note from his parents</strong>${esc(lunch.note)}</div></div>` : '';
+  const editRow = (label) => (canPlanLunch() ? `<button class="row" data-school="edit"><span class="row-main"><span class="row-title row-link">${label}</span></span>${ICON.chevron}</button>` : '');
   if (!lunch) {
-    return section(title, `<div class="row"><span class="row-main"><span class="row-title">No lunch planned for today</span><span class="row-sub">${isTeacher() ? 'Ask his parents to add it in DiaBuddy.' : 'Plan it below; his teacher sees it straight away.'}</span></span></div>${lowRow}`);
+    return section(title, `<div class="row"><span class="row-main"><span class="row-title">No lunch planned for today</span><span class="row-sub">${isTeacher() ? 'Ask his parents to add it in DiaBuddy.' : 'Add what’s in his lunchbox; his teacher sees it straight away.'}</span></span></div>
+      ${editRow('Plan today’s lunch')}${lowRow}`);
   }
   const rec = lunch.recorded;
   if (rec && !st.again) {
@@ -1344,7 +1339,7 @@ function lunchTodayHtml(lunch) {
   const items = lunch.items.map((it) => {
     const f = st.eaten[it.id] ?? 1;
     return `<div class="row lunch-item">
-      <span class="row-main"><span class="row-title">${esc(it.name)}</span><span class="row-sub" data-item-carbs="${esc(it.id)}">${portionLine(it, f)}</span></span>
+      <span class="row-main"><span class="row-title">${esc(it.name)}</span><span class="row-sub" data-item-carbs="${esc(it.id)}">${esc(portionLine(it, f))}</span></span>
       <div class="segmented lunch-portions" role="group" aria-label="How much of the ${esc(it.name)} he ate">${PORTIONS.map(([v, label]) =>
         `<button type="button" data-portion="${esc(it.id)}" data-f="${v}" aria-pressed="${v === f}">${label}</button>`).join('')}</div>
     </div>`;
@@ -1352,7 +1347,8 @@ function lunchTodayHtml(lunch) {
   const recent = st.recent ?? Boolean(st.data.recentInsulin);
   return `${st.again ? `<div class="banner banner-warn">${ICON.warn}<div><strong>A dose was already recorded today</strong>Given at ${clockTime(rec.at)}: ${fmt(rec.units)} U. Only record again if another dose was really given.</div></div>` : ''}
     ${section(title, `${items}
-      <div class="row"><span class="row-main"><span class="row-title">He ate</span><span class="row-sub">Planned ${fmt(lunchCarbs(lunch))} g</span></span><span class="row-value"><strong id="lunch-total">${fmt(lunchCarbs(lunch, st.eaten))} g</strong></span></div>`,
+      <div class="row"><span class="row-main"><span class="row-title">He ate</span><span class="row-sub">Planned ${fmt(lunchCarbs(lunch))} g</span></span><span class="row-value"><strong id="lunch-total">${fmt(lunchCarbs(lunch, st.eaten))} g</strong></span></div>
+      ${editRow('Change today’s lunch')}`,
       'Set how much of each he ate. The dose updates as you go.')}
     ${note}
     <section class="section"><div class="group">
@@ -1472,75 +1468,91 @@ async function undoLunchRecord(id) {
   if (canReadLog()) loadTodayLog();
 }
 
-// Parents: the next school days, each opening its editor.
-function lunchPlanHtml() {
-  const rows = schoolDays().map((date) => {
-    const l = lunchOn(date);
-    const sub = !l ? 'Not planned'
-      : l.recorded ? `Given ${clockTime(l.recorded.at)} · ${fmt(l.recorded.units)} U`
-      : `${fmt(lunchCarbs(l))} g carbs · ${l.items.length} ${l.items.length === 1 ? 'item' : 'items'}`;
-    return `<button class="row" data-lunch-day="${date}"><span class="row-main"><span class="row-title">${esc(dayName(date))}</span><span class="row-sub ${l ? '' : 'lunch-empty'}">${esc(sub)}</span></span>${ICON.chevron}</button>`;
-  }).join('');
-  return section('Plan', rows, 'Tap a day to add his lunch. You can change it until the dose is recorded.');
-}
+// Parents: plan or change today's lunch, from the food database or typed in.
+// withMeal adds the Foods tray to it.
+const lunchFoodItem = (food, servings = 1) => ({
+  id: newId().slice(0, 10),
+  name: food.name.slice(0, 60),
+  carbs: Math.round(lineCarbs(food, servings) * 10) / 10,
+  serving: food.serving.label.slice(0, 60),
+  servings,
+  perServing: food.free ? 0 : Number(food.netCarbs) || 0,
+});
 
-// Teacher: the days ahead, read-only.
-function lunchComingHtml() {
-  const next = state.school.data.lunches.filter((l) => l.date > state.school.data.today).slice(0, 5);
-  if (!next.length) return '';
-  return section('Coming up', next.map((l) => `<div class="row"><span class="row-main"><span class="row-title">${esc(dayName(l.date))} · ${fmt(lunchCarbs(l))} g</span><span class="row-sub">${l.items.map((i) => esc(i.name)).join(', ')}</span></span></div>`).join(''));
-}
-
-// Parents: plan or change one day's lunch. withMeal adds the Foods tray to it.
-function openLunchEditor(date, { withMeal = false } = {}) {
-  const saved = lunchOn(date);
+function openLunchEditor({ withMeal = false } = {}) {
+  const saved = todayLunch();
   if (saved?.recorded) {
-    openSheet(`${sheetHeader(dayName(date), `Given at ${clockTime(saved.recorded.at)}: ${fmt(saved.recorded.units)} U for ${fmt(saved.recorded.carbs)} g`)}
+    openSheet(`${sheetHeader('Today’s lunch', `Given at ${clockTime(saved.recorded.at)}: ${fmt(saved.recorded.units)} U for ${fmt(saved.recorded.carbs)} g`)}
       ${section('Lunch', saved.items.map((i) => `<div class="row"><span class="row-main"><span class="row-title">${esc(i.name)}</span></span><span class="row-value">${fmt(i.carbs)} g</span></div>`).join(''), 'The dose is recorded, so this lunch can’t be changed. Undo the dose on the School page first.')}
       <div class="sheet-actions"><button class="btn btn-secondary" data-action="close-sheet">Done</button></div>`);
     return;
   }
   const draft = { items: (saved?.items || []).map((i) => ({ ...i })), note: saved?.note || '' };
-  const mealItems = () => state.meal.filter((l) => !l.food.free).map((l) => ({
-    id: newId().slice(0, 10),
-    name: `${l.food.name}${l.servings === 1 ? '' : ` × ${fmt(l.servings, 2)}`}`.slice(0, 60),
-    carbs: Math.round(lineCarbs(l.food, l.servings) * 10) / 10,
-  }));
-  if (withMeal) draft.items.push(...mealItems());
-  const others = (state.school.data?.lunches || []).filter((l) => l.date !== date);
+  if (withMeal) draft.items.push(...state.meal.map((l) => lunchFoodItem(l.food, l.servings)));
 
   openSheet(`
-    ${sheetHeader(dayName(date), saved ? `Planned by ${esc(saved.updatedBy)}` : 'His teacher sees this with the dose')}
+    ${sheetHeader('Today’s lunch', `${dayName(todayDate())}${saved ? ` · planned by ${esc(saved.updatedBy)}` : ''}`)}
     <section class="section"><div class="group" id="lunch-items"></div><p class="section-footer" id="lunch-sum"></p></section>
+    <section class="section">
+      <h2 class="section-header">Add from foods</h2>
+      <label class="search lunch-search">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="lunch-search" type="search" placeholder="Search foods" autocomplete="off" autocorrect="off" spellcheck="false" enterkeyhint="search" aria-label="Search foods for his lunch">
+      </label>
+      <div id="lunch-results"></div>
+    </section>
     <section class="section"><div class="group">
-      <button class="row" id="lunch-add"><span class="row-main"><span class="row-title row-link">Add an item</span></span>${ICON.plus}</button>
-      ${state.meal.length ? `<button class="row" id="lunch-add-meal"><span class="row-main"><span class="row-title row-link">Add the current meal</span><span class="row-sub">${state.meal.length} ${state.meal.length === 1 ? 'food' : 'foods'} from Foods, ${fmt(mealCarbs())} g</span></span>${ICON.plus}</button>` : ''}
-      ${others.length ? `<div class="row field-row"><label for="lunch-copy">Copy from</label><select id="lunch-copy" class="wide"><option value="">Another day…</option>${others.map((l) => `<option value="${l.date}">${esc(dayName(l.date))}</option>`).join('')}</select></div>` : ''}
+      <button class="row" id="lunch-add"><span class="row-main"><span class="row-title row-link">Type in an item</span><span class="row-sub">For something that isn’t in the foods list</span></span>${ICON.plus}</button>
+      ${state.meal.length && !withMeal ? `<button class="row" id="lunch-add-meal"><span class="row-main"><span class="row-title row-link">Add the current meal</span><span class="row-sub">${state.meal.length} ${state.meal.length === 1 ? 'food' : 'foods'} from Foods, ${fmt(mealCarbs())} g</span></span>${ICON.plus}</button>` : ''}
     </div></section>
     <section class="section"><div class="group">
       <div class="row field-row"><label for="lunch-note">Note</label><input id="lunch-note" class="wide" maxlength="200" placeholder="For his teacher (optional)" autocomplete="off"></div>
-    </div><p class="section-footer" id="lunch-status">Carbs are for the whole item as packed.</p></section>
+    </div><p class="section-footer" id="lunch-status">Carbs are for what’s packed. His teacher sets how much he ate.</p></section>
     <div class="sheet-actions">
       <button class="btn btn-primary" id="lunch-save">Save lunch</button>
-      ${saved ? '<button class="btn btn-danger" id="lunch-delete">Remove this lunch</button>' : ''}
+      ${saved ? '<button class="btn btn-danger" id="lunch-delete">Remove today’s lunch</button>' : ''}
     </div>`, {
     onMount(root) {
       const list = $('#lunch-items', root);
+      const results = $('#lunch-results', root);
       $('#lunch-note', root).value = draft.note;
+      const sum = () => { $('#lunch-sum', root).textContent = `${fmt(draft.items.reduce((s, i) => s + (i.carbs || 0), 0))} g carbs in total`; };
+      const remove = (i, name) => `<button type="button" class="icon-btn" data-remove="${i}" aria-label="Remove ${esc(name || `item ${i + 1}`)}">${ICON.close}</button>`;
       const paint = () => {
-        list.innerHTML = draft.items.length ? draft.items.map((it, i) => `<div class="row field-row lunch-edit">
-            <input data-li="${i}" data-field="name" class="wide" maxlength="60" placeholder="Item" aria-label="Item ${i + 1}" autocomplete="off">
-            <input data-li="${i}" data-field="carbs" inputmode="decimal" placeholder="g" aria-label="Carbs in item ${i + 1}, grams" style="width:4rem;text-align:right">
-            <span class="unit">g</span>
-            <button type="button" class="icon-btn" data-remove="${i}" aria-label="Remove item ${i + 1}">${ICON.close}</button>
-          </div>`).join('') : '<div class="row"><span class="row-main"><span class="row-sub">No items yet. Add what’s in his lunchbox.</span></span></div>';
+        list.innerHTML = draft.items.length ? draft.items.map((it, i) => it.perServing != null
+          ? `<div class="row lunch-edit">
+              <span class="row-main"><span class="row-title">${esc(it.name)}</span><span class="row-sub">${esc(`${fmt(it.servings, 2)} × ${it.serving}`)} · ${fmt(it.carbs)} g carbs</span></span>
+              <span class="stepper">
+                <button type="button" data-serv="-1" data-i="${i}" aria-label="Less ${esc(it.name)}">${ICON.minus}</button>
+                <button type="button" data-serv="1" data-i="${i}" aria-label="More ${esc(it.name)}">${ICON.plus}</button>
+              </span>
+              ${remove(i, it.name)}
+            </div>`
+          : `<div class="row field-row lunch-edit">
+              <input data-li="${i}" data-field="name" class="wide" maxlength="60" placeholder="Item" aria-label="Item ${i + 1}" autocomplete="off">
+              <input data-li="${i}" data-field="carbs" inputmode="decimal" placeholder="g" aria-label="Carbs in item ${i + 1}, grams" style="width:4rem;text-align:right">
+              <span class="unit">g</span>
+              ${remove(i)}
+            </div>`).join('') : '<div class="row"><span class="row-main"><span class="row-sub">No items yet. Search the foods below, or type one in.</span></span></div>';
         for (const el of $$('[data-li]', list)) {
           const it = draft.items[el.dataset.li];
           el.value = el.dataset.field === 'name' ? it.name : it.carbs == null ? '' : fmt(it.carbs);
         }
         sum();
       };
-      const sum = () => { $('#lunch-sum', root).textContent = `${fmt(draft.items.reduce((s, i) => s + (i.carbs || 0), 0))} g carbs in total`; };
+      const search = () => {
+        const q = $('#lunch-search', root).value.trim();
+        if (!q) { results.innerHTML = ''; return; }
+        ensurePackaged();
+        const found = [...searchFoods(allLocalFoods(), q).slice(0, 8), ...(state.packaged ? searchFoods(state.packaged, q).slice(0, 5) : [])];
+        results.innerHTML = section(null, found.length
+          ? found.map((f) => `<button class="row" data-pick-food="${esc(f.id)}" aria-label="Add ${esc(f.name)}">
+              ${foodAvatar(f)}
+              <span class="row-main"><span class="row-title">${esc(f.name)}</span><span class="row-sub"><span>${esc(f.serving.label)} · ${carbText(f)}</span>${badge(f)}</span></span>
+              <span class="add-btn" aria-hidden="true">${ICON.plus}</span>
+            </button>`).join('')
+          : `<div class="row"><span class="row-main"><span class="row-sub">${state.packagedLoading ? 'Searching packaged products…' : 'No foods match. Type it in instead.'}</span></span></div>`);
+      };
       list.addEventListener('input', (e) => {
         const d = e.target.dataset;
         if (!d.li) return;
@@ -1550,46 +1562,63 @@ function openLunchEditor(date, { withMeal = false } = {}) {
         sum();
       });
       list.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-remove]');
-        if (b) { draft.items.splice(Number(b.dataset.remove), 1); paint(); }
+        const rm = e.target.closest('[data-remove]');
+        const step = e.target.closest('[data-serv]');
+        if (rm) { draft.items.splice(Number(rm.dataset.remove), 1); paint(); }
+        if (step) {
+          const it = draft.items[step.dataset.i];
+          it.servings = clamp(it.servings + Number(step.dataset.serv) * 0.5, 0.5, 20);
+          it.carbs = Math.round(it.perServing * it.servings * 10) / 10;
+          paint();
+        }
+      });
+      $('#lunch-search', root).addEventListener('input', search);
+      results.addEventListener('click', (e) => {
+        const food = foodIndex.get(e.target.closest('[data-pick-food]')?.dataset.pickFood);
+        if (!food) return;
+        draft.items.push(lunchFoodItem(food));
+        $('#lunch-search', root).value = '';
+        results.innerHTML = '';
+        paint();
+        toast(`${food.name} added`);
       });
       $('#lunch-add', root).addEventListener('click', () => {
         draft.items.push({ id: newId().slice(0, 10), name: '', carbs: null });
         paint();
         $$('[data-field="name"]', list).at(-1)?.focus();
       });
-      $('#lunch-add-meal', root)?.addEventListener('click', () => { draft.items.push(...mealItems()); paint(); });
-      $('#lunch-copy', root)?.addEventListener('change', (e) => {
-        const from = lunchOn(e.target.value);
-        if (!from) return;
-        draft.items = from.items.map((i) => ({ ...i, id: newId().slice(0, 10) }));
-        draft.note = from.note || '';
-        $('#lunch-note', root).value = draft.note;
-        e.target.value = '';
+      $('#lunch-add-meal', root)?.addEventListener('click', (e) => {
+        draft.items.push(...state.meal.map((l) => lunchFoodItem(l.food, l.servings)));
+        e.currentTarget.remove();
         paint();
       });
       $('#lunch-save', root).addEventListener('click', async (e) => {
         const status = $('#lunch-status', root);
         const items = draft.items.filter((i) => i.name.trim() || i.carbs != null);
         if (!items.length) { status.textContent = 'Add at least one item.'; return; }
+        if (items.length > 12) { status.textContent = 'That’s more than 12 items. Combine some.'; return; }
         const bad = items.find((i) => !i.name.trim() || i.carbs == null || i.carbs < 0 || i.carbs > 200);
         if (bad) { status.textContent = 'Each item needs a name and its carbs (0–200 g).'; return; }
-        e.currentTarget.disabled = true;
+        const btn = e.currentTarget;
+        btn.disabled = true;
         try {
-          await relayFetch(RELAY_URL, `/school/${date}`, { method: 'PUT', body: { items: items.map((i) => ({ id: i.id, name: i.name.trim(), carbs: i.carbs })), note: $('#lunch-note', root).value.trim() } });
+          await relayFetch(RELAY_URL, `/school/${todayDate()}`, { method: 'PUT', body: {
+            items: items.map(({ id, name, carbs, serving, servings, perServing }) => ({ id, name: name.trim(), carbs, ...(perServing != null && { serving, servings, perServing }) })),
+            note: $('#lunch-note', root).value.trim(),
+          } });
           closeSheet();
-          toast(`Lunch saved for ${dayName(date)}`);
+          toast('Today’s lunch saved');
           if (withMeal) clearMeal();
           loadSchool();
         } catch (err) {
           status.textContent = err.message || 'Couldn’t save. Check the signal and try again.';
-          e.currentTarget.disabled = false;
+          btn.disabled = false;
         }
       });
       $('#lunch-delete', root)?.addEventListener('click', async () => {
-        if (!confirm(`Remove the lunch for ${dayName(date)}?`)) return;
+        if (!confirm('Remove today’s lunch?')) return;
         try {
-          await relayFetch(RELAY_URL, `/school/${date}`, { method: 'DELETE' });
+          await relayFetch(RELAY_URL, `/school/${todayDate()}`, { method: 'DELETE' });
           closeSheet();
           toast('Lunch removed');
           loadSchool();
@@ -1602,29 +1631,17 @@ function openLunchEditor(date, { withMeal = false } = {}) {
   });
 }
 
-// From the Foods tray: pick a school day to save the meal to.
-function openSaveMealAsLunch() {
-  if (!state.school.data) loadSchool();
-  openSheet(`${sheetHeader('Save as school lunch', `${fmt(mealCarbs())} g carbs from ${state.meal.length} ${state.meal.length === 1 ? 'food' : 'foods'}`)}
-    ${section('Which day?', schoolDays().map((date) => {
-      const l = lunchOn(date);
-      return `<button class="row" data-pick-day="${date}"><span class="row-main"><span class="row-title">${esc(dayName(date))}</span><span class="row-sub">${l?.recorded ? 'Already given' : l ? `Adds to the ${fmt(lunchCarbs(l))} g already planned` : 'Not planned yet'}</span></span>${ICON.chevron}</button>`;
-    }).join(''), 'You can check and change the items before saving.')}`, {
-    onMount(root) {
-      root.addEventListener('click', (e) => {
-        const b = e.target.closest('[data-pick-day]');
-        if (!b) return;
-        closeSheet();
-        setTimeout(() => openLunchEditor(b.dataset.pickDay, { withMeal: true }), 320);
-      });
-    },
-  });
+// From the Foods tray: add the meal to today's school lunch.
+async function saveMealAsLunch() {
+  if (!state.school.data) await loadSchool();
+  if (todayLunch()?.recorded) { toast('Today’s lunch dose is already recorded, so the lunch can’t be changed'); return; }
+  openLunchEditor({ withMeal: true });
 }
 
 function initSchool() {
   const el = $('#school-body');
   el.addEventListener('click', (e) => {
-    const t = e.target.closest('[data-school], [data-portion], [data-given-step], [data-lunch-day]');
+    const t = e.target.closest('[data-school], [data-portion], [data-given-step]');
     if (!t) return;
     const st = state.school;
     const d = t.dataset;
@@ -1633,7 +1650,7 @@ function initSchool() {
       const field = $('#school-given');
       st.given = Math.max(0, Math.round(((num(field.value) ?? 0) + Number(d.givenStep) * 0.5) * 2) / 2);
       field.value = st.given.toFixed(1);
-    } else if (d.lunchDay) openLunchEditor(d.lunchDay);
+    } else if (d.school === 'edit') openLunchEditor();
     else if (d.school === 'reload') { st.error = null; renderSchool(); }
     else if (d.school === 'record') recordLunch();
     else if (d.school === 'low') recordLunch({ type: 'low-treatment' });
@@ -1715,7 +1732,7 @@ function renderTray({ pulse = false } = {}) {
       <p class="section-footer">Steps are half a serving. Tap a food to enter grams instead.</p>
     </section>
     <div class="sheet-actions">
-      ${canPlanLunch() ? '<button class="btn btn-secondary" data-action="save-lunch">Save as school lunch…</button>' : ''}
+      ${canPlanLunch() ? '<button class="btn btn-secondary" data-action="save-lunch">Add to today’s school lunch</button>' : ''}
       <button class="btn btn-danger" data-action="clear-meal">Clear meal</button>
     </div>` : '';
 
@@ -2969,7 +2986,7 @@ const actions = {
   'photo-label': openPhotoLabel,
   'cgm-refresh': refreshCgm,
   'test-alert': testAlert,
-  'save-lunch': () => { setTrayExpanded(false); openSaveMealAsLunch(); },
+  'save-lunch': () => { setTrayExpanded(false); saveMealAsLunch(); },
 };
 
 function initEvents() {
