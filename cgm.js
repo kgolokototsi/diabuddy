@@ -57,6 +57,15 @@ const MESSAGES = {
   label_unreadable: 'The label couldn’t be read clearly. Try a sharper photo, straight on.',
   bad_food: 'Fill in the name, serving and carbs.',
   alerts_not_configured: 'Alerts aren’t set up on the relay yet.',
+  already_recorded: 'His lunch dose was already recorded.',
+  undo_expired: 'It’s too late to undo that here. Ask his parents to remove it.',
+  not_today: 'Only today’s lunch can be recorded.',
+  no_lunch: 'There’s no lunch planned for today.',
+  bg_low: 'He’s low. Treat the low first; don’t give insulin now.',
+  bad_lunch: 'Each item needs a name and carbs (0–200 g), up to 12 items.',
+  bad_date: 'That day can’t be planned. Pick a day from today to 30 days ahead.',
+  not_allowed: 'This phone can’t do that.',
+  settings_missing: 'His carb ratio isn’t set yet. The admin needs to set it in Settings.',
   alerts_need_invite: 'Connect this phone with an invite from the admin to get alerts.',
   bad_subscription: 'This phone’s browser gave an alert address DiaBuddy can’t use.',
   not_subscribed: 'Turn alerts on first.',
@@ -111,7 +120,7 @@ export async function relayFetch(url, path, { method = 'GET', body, key = getCgm
       signal: ctrl.signal,
     });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw Object.assign(new Error(MESSAGES[data.error] || `The relay returned ${res.status}.`), { status: res.status });
+    if (!res.ok) throw Object.assign(new Error(MESSAGES[data.error] || `The relay returned ${res.status}.`), { status: res.status, data });
     return data;
   } finally {
     clearTimeout(timer);

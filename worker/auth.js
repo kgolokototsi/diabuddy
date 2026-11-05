@@ -8,10 +8,13 @@
 // The old shared FAMILY_KEY / TV_KEY keep working as "legacy" phones until the
 // admin turns them off, so the move never leaves the family unable to dose.
 
+// read: his log, Insights and settings. latest: his current reading. lunch: plan school lunches.
+// school: his teacher's phone: today's lunch with its dose, and recording it.
 const PERMISSIONS = {
-  admin: ['read', 'log', 'foods', 'scan', 'alerts', 'admin'],
-  family: ['read', 'log', 'foods', 'scan', 'alerts'],
-  tv: ['read'],
+  admin: ['read', 'latest', 'log', 'foods', 'scan', 'alerts', 'lunch', 'admin'],
+  family: ['read', 'latest', 'log', 'foods', 'scan', 'alerts', 'lunch'],
+  tv: ['read', 'latest'],
+  school: ['latest', 'alerts', 'school'],
 };
 export const ROLES = Object.keys(PERMISSIONS);
 export const can = (device, permission) => Boolean(device && PERMISSIONS[device.role]?.includes(permission));

@@ -62,6 +62,7 @@ const state = {
   recentEvents: [],
   insights: { data: null, at: 0, loading: false, error: null, summary: null, kind: 'meal', days: 14, table: false, carbs: null, units: null, bgTyped: null, mealOfDay: null },
   me: store.get('me', null), // { id, name, role, legacy } from the relay
+  school: { data: null, loading: false, error: null, eaten: {}, again: false, given: null, bgInput: null, recent: null, dose: null },
   githubFoods: [],
   relayFoods: store.get('relay-foods', []),
   foodsQuery: '',
@@ -89,7 +90,7 @@ function restoreMeal() {
 
 async function loadSettings() {
   const before = JSON.stringify(state.settings);
-  if (cgmReady()) {
+  if (cgmReady() && !isTeacher()) { // the teacher's phone gets its dose settings with the lunch
     try {
       const { settings } = await relayFetch(RELAY_URL, '/settings');
       // Numbers only: these values fill form fields and drive the dose.
@@ -130,6 +131,8 @@ function forgetThisPhone() {
   for (const k of ['me', 'settings', 'relay-foods', 'pending-events', 'forecast-model']) store.set(k, null);
   state.model = null;
   state.recentEvents = [];
+  state.school = { data: null, loading: false, error: null, eaten: {}, again: false, given: null, bgInput: null, recent: null, dose: null };
+  applyRole();
   try { localStorage.removeItem('diabuddy.meal'); } catch {}
   // The relay forgets this phone's alerts with the phone; drop the browser's side too.
   state.alerts = { types: null };
@@ -158,7 +161,7 @@ async function loadAllFoods() {
 }
 
 async function loadRelayFoods() {
-  if (!cgmReady()) return;
+  if (!canReadLog()) return;
   try {
     const { foods } = await relayFetch(RELAY_URL, '/foods');
     state.relayFoods = foods.map((f) => ({ ...f, source: 'custom', relay: true }));
@@ -351,6 +354,7 @@ function getReading({ maxAgeMs = 60000 } = {}) {
       cgmPending = null;
       renderCgmCard();
       if (state.tab === 'settings') renderSettings();
+      if (state.tab === 'school') paintLunchDose();
       // Keep "Low risk now" current, but don't redraw under someone typing.
       if (state.tab === 'insights' && !$('#insights-body').contains(document.activeElement)) renderInsights();
     });
@@ -368,8 +372,10 @@ const TARGET_TOP = 10;
 const readingValue = (r) => r.low ? 'LOW' : r.high ? 'HIGH' : fmt(r.mmol);
 
 function renderCgmCard() {
-  const el = $('#cgm-card');
-  if (!el) return;
+  // Home's card, and the one on the teacher's lunch screen.
+  const slots = [$('#cgm-card'), ...$$('[data-cgm-card]')].filter(Boolean);
+  if (!slots.length) return;
+  const el = { set innerHTML(html) { for (const s of slots) s.innerHTML = html; } };
   if (!getCgmKey()) {
     el.innerHTML = section(null, `<button class="row" data-action="join"><span class="row-main"><span class="row-title row-link">Connect this phone</span><span class="row-sub">Open the invite link from the admin, or paste it here.</span></span>${ICON.chevron}</button>`);
     return;
@@ -426,7 +432,7 @@ function recentEvents() {
 }
 
 async function loadModel() {
-  if (!getCgmKey()) return;
+  if (!canReadLog()) return;
   try {
     const { model } = await relayFetch(RELAY_URL, '/insights/model');
     state.model = model;
@@ -519,6 +525,7 @@ function trendChart(history = [], now = Date.now(), fc = null) {
 
 function refreshCgm() {
   if (cgmReady()) getReading({ maxAgeMs: 0 }).catch(() => {});
+  if (state.tab === 'school') loadSchool({ quiet: true }); // parents' edits reach the teacher
 }
 
 // ---------------------------------------------------------------- Home screen
@@ -574,7 +581,7 @@ function renderHome() {
 
 const PENDING_KEY = 'pending-events';
 const deviceId = store.get('device') || (() => { const d = `phone-${Math.random().toString(36).slice(2, 8)}`; store.set('device', d); return d; })();
-const logReady = () => cgmReady();
+const logReady = () => canReadLog();
 const newId = () => Math.random().toString(36).slice(2, 12).padEnd(10, '0');
 const isToday = (iso) => new Date(iso).toDateString() === new Date().toDateString();
 
@@ -771,7 +778,7 @@ function phoneRows() {
     return `<button class="row" data-action="join"><span class="row-main"><span class="row-title row-link">Connect this phone</span><span class="row-sub">Open the invite link from the admin, or paste it here.</span></span>${ICON.chevron}</button>`;
   }
   const r = state.cgm.reading;
-  const roleName = { admin: 'Admin', family: 'Family', tv: 'View only' }[me?.role] || 'Connected';
+  const roleName = { admin: 'Admin', family: 'Family', tv: 'View only', school: 'School (teacher)' }[me?.role] || 'Connected';
   return [
     settingRow('This phone', esc(me?.name || 'Connected')),
     settingRow('Access', `${roleName}${me?.legacy ? ' (old shared link)' : ''}`),
@@ -803,7 +810,7 @@ function alertRows() {
   if (types == null && !busy) {
     state.alerts.busy = true;
     alertTypes().then((t) => { state.alerts = { types: t }; }, () => { state.alerts = { types: [] }; })
-      .finally(() => { if (state.tab === 'settings') renderSettings(); });
+      .finally(() => { if (state.tab === 'settings') renderSettings(); else if (state.tab === 'school') renderSchool(); });
   }
   return ALERT_CHOICES.map(([type, label, sub]) => `<div class="row"><span class="row-main"><label for="alerts-${type}" class="row-title">${label}</label>
       <span class="row-sub">${sub}</span></span>
@@ -826,7 +833,7 @@ async function toggleAlert(input) {
     state.alerts = { types: before };
     toast(err.message || 'Couldn’t change alerts. Try again.');
   }
-  renderSettings();
+  if (state.tab === 'school') renderSchool(); else renderSettings();
 }
 
 async function testAlert() {
@@ -1237,6 +1244,412 @@ function initInsights() {
   });
 }
 
+// ---------------------------------------------------------------- School lunch
+// His parents plan each day's lunch. His teacher's phone (role "school") shows only this
+// screen: his reading, today's lunch with how much he ate, the dose, and recording it.
+// The relay works the carbs and dose out again when it's recorded (worker/school.js).
+
+const PORTIONS = [[1, 'All'], [0.75, '¾'], [0.5, '½'], [0.25, '¼'], [0, 'None']];
+const UNDO_MINUTES = 15;
+const isTeacher = () => state.me?.role === 'school';
+const canPlanLunch = () => ['admin', 'family'].includes(state.me?.role);
+const canReadLog = () => Boolean(getCgmKey()) && !isTeacher();
+const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dayName = (date) => new Date(`${date}T12:00:00`).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+const lunchCarbs = (lunch, eaten = {}) => Math.round(lunch.items.reduce((s, i) => s + i.carbs * (eaten[i.id] ?? 1), 0) * 10) / 10;
+const todayLunch = () => state.school.data?.lunches.find((l) => l.date === state.school.data.today) || null;
+const lunchOn = (date) => state.school.data?.lunches.find((l) => l.date === date) || null;
+
+// The next n weekdays, starting today.
+function schoolDays(n = 10, from = new Date()) {
+  const out = [];
+  for (const d = new Date(from); out.length < n; d.setDate(d.getDate() + 1)) if (d.getDay() % 6) out.push(localDate(d));
+  return out;
+}
+
+// Shows the School tab to parents, and only the lunch screen to his teacher.
+function applyRole() {
+  const role = state.me?.role || '';
+  document.body.dataset.role = role;
+  $('[data-tab="school"]').hidden = !canPlanLunch();
+  if (isTeacher() && state.tab !== 'school') switchTab('school');
+  if (!isTeacher() && !canPlanLunch() && state.tab === 'school') switchTab('home');
+}
+
+async function loadSchool({ quiet = false } = {}) {
+  const st = state.school;
+  if (!getCgmKey() || !(isTeacher() || canPlanLunch()) || st.loading) return;
+  st.loading = true;
+  try {
+    const before = JSON.stringify(todayLunch());
+    const data = await relayFetch(RELAY_URL, '/school');
+    st.data = data;
+    st.error = null;
+    // Today's lunch changed (edited, recorded or undone): start its portions again.
+    if (JSON.stringify(todayLunch()) !== before) Object.assign(st, { eaten: {}, again: false, given: null });
+    if (isTeacher() && data.settings) {
+      state.settings = data.settings;
+      state.settingsMeta = { from: 'relay', fetchedAt: Date.now() };
+      store.set('settings', { data: data.settings, fetchedAt: Date.now() });
+    }
+  } catch (err) {
+    st.error = err.message;
+  }
+  st.loading = false;
+  // A background refresh doesn't redraw under someone typing.
+  if (state.tab === 'school' && !(quiet && $('#school-body').contains(document.activeElement))) renderSchool();
+}
+
+function renderSchool() {
+  const el = $('#school-body');
+  const st = state.school;
+  $('#school-title').textContent = isTeacher() ? 'Lunch' : 'School';
+  $('#school-sub').textContent = isTeacher() ? 'His lunch today, how much he ate, and his dose' : 'Plan his lunch; his teacher sees it with the dose';
+  if (!st.data) {
+    el.innerHTML = st.error
+      ? section(null, `<button class="row" data-school="reload"><span class="row-main"><span class="row-title">Couldn’t load his lunches</span><span class="row-sub">${esc(st.error)} Tap to try again.</span></span></button>`)
+      : section(null, loadingRow('Loading his lunches…'));
+    if (!st.loading && !st.error) loadSchool();
+    return;
+  }
+  el.innerHTML = [
+    isTeacher() ? '<div data-cgm-card></div>' : '',
+    lunchTodayHtml(todayLunch()),
+    canPlanLunch() ? lunchPlanHtml() : lunchComingHtml(),
+    isTeacher() ? section('Alerts', alertRows(), 'These add to his CGM app’s alarms; they don’t replace them.') + section('This phone', phoneRows()) : '',
+  ].join('');
+  if (isTeacher()) renderCgmCard();
+  paintLunchDose();
+}
+
+const portionLine = (it, f) => f === 1 ? `${fmt(it.carbs)} g carbs` : `${fmt(it.carbs * f)} of ${fmt(it.carbs)} g carbs`;
+
+function lunchTodayHtml(lunch) {
+  const st = state.school;
+  const title = `Today · ${dayName(st.data.today)}`;
+  const lowRow = `<button class="row" data-school="low"><span class="row-main"><span class="row-title row-link">Record ${LOW_TREATMENT_G} g low treatment</span><span class="row-sub">15-15 rule: ${LOW_TREATMENT_G} g of fast carbs, recheck in 15 minutes, repeat if he’s still low.</span></span></button>`;
+  const note = lunch?.note ? `<div class="banner banner-info">${ICON.info}<div><strong>Note from his parents</strong>${esc(lunch.note)}</div></div>` : '';
+  if (!lunch) {
+    return section(title, `<div class="row"><span class="row-main"><span class="row-title">No lunch planned for today</span><span class="row-sub">${isTeacher() ? 'Ask his parents to add it in DiaBuddy.' : 'Plan it below; his teacher sees it straight away.'}</span></span></div>${lowRow}`);
+  }
+  const rec = lunch.recorded;
+  if (rec && !st.again) {
+    const canUndo = !isTeacher() || (rec.deviceId === state.me?.id && Date.now() - Date.parse(rec.at) < UNDO_MINUTES * 60000);
+    return section(title, `
+      <div class="row lunch-given"><span class="row-main"><span class="row-title">Given at ${clockTime(rec.at)}: ${fmt(rec.units)} U for ${fmt(rec.carbs)} g</span><span class="row-sub">Recorded by ${esc(rec.by)} · in his log at home</span></span></div>
+      ${canUndo ? `<button class="row" data-school="undo" data-id="${esc(rec.eventId)}"><span class="row-main"><span class="row-title row-link">Undo</span><span class="row-sub">If it was recorded by mistake</span></span></button>` : ''}
+      <button class="row" data-school="again"><span class="row-main"><span class="row-title row-link">Record again</span><span class="row-sub">Only if another dose was really given</span></span></button>
+      ${lowRow}`) + note;
+  }
+  const items = lunch.items.map((it) => {
+    const f = st.eaten[it.id] ?? 1;
+    return `<div class="row lunch-item">
+      <span class="row-main"><span class="row-title">${esc(it.name)}</span><span class="row-sub" data-item-carbs="${esc(it.id)}">${portionLine(it, f)}</span></span>
+      <div class="segmented lunch-portions" role="group" aria-label="How much of the ${esc(it.name)} he ate">${PORTIONS.map(([v, label]) =>
+        `<button type="button" data-portion="${esc(it.id)}" data-f="${v}" aria-pressed="${v === f}">${label}</button>`).join('')}</div>
+    </div>`;
+  }).join('');
+  const recent = st.recent ?? Boolean(st.data.recentInsulin);
+  return `${st.again ? `<div class="banner banner-warn">${ICON.warn}<div><strong>A dose was already recorded today</strong>Given at ${clockTime(rec.at)}: ${fmt(rec.units)} U. Only record again if another dose was really given.</div></div>` : ''}
+    ${section(title, `${items}
+      <div class="row"><span class="row-main"><span class="row-title">He ate</span><span class="row-sub">Planned ${fmt(lunchCarbs(lunch))} g</span></span><span class="row-value"><strong id="lunch-total">${fmt(lunchCarbs(lunch, st.eaten))} g</strong></span></div>`,
+      'Set how much of each he ate. The dose updates as you go.')}
+    ${note}
+    <section class="section"><div class="group">
+      <div class="bg-entry"><label for="school-bg">Current BG</label><input id="school-bg" inputmode="decimal" placeholder="–" autocomplete="off" aria-describedby="school-bg-error"><span class="unit">mmol/L</span></div>
+      <div class="row cgm-note" id="school-cgm-note" hidden></div>
+      <div class="row"><span class="row-main"><label for="school-recent" class="row-title">Insulin in the last 3 hours</label><span class="row-sub">${st.data.recentInsulin ? 'His log shows insulin in the last 3 hours' : 'None in his log'}. Leaves out a correction for high BG.</span></span><input type="checkbox" class="switch" id="school-recent" ${recent ? 'checked' : ''}></div>
+    </div><p class="field-error" id="school-bg-error" hidden></p></section>
+    <div id="school-dose" aria-live="polite"></div>
+    ${section(null, lowRow)}`;
+}
+
+// BG for the dose: what was typed, else a fresh sensor reading.
+function lunchBg() {
+  const st = state.school;
+  const r = state.cgm.reading;
+  if (st.bgInput != null) return { text: st.bgInput, source: 'typed' };
+  if (r && usableForDose(r)) return { text: fmt(r.mmol), source: r.source || 'dexcom' };
+  return { text: '', source: null };
+}
+
+function paintLunchDose() {
+  const lunch = todayLunch();
+  const out = $('#school-dose');
+  if (!lunch || !out) return;
+  const st = state.school;
+  const input = $('#school-bg');
+  const bgNow = lunchBg();
+  if (document.activeElement !== input) input.value = bgNow.text;
+  for (const it of lunch.items) {
+    const sub = $(`[data-item-carbs="${CSS.escape(it.id)}"]`);
+    if (sub) sub.textContent = portionLine(it, st.eaten[it.id] ?? 1);
+  }
+  for (const b of $$('[data-portion]')) b.setAttribute('aria-pressed', String(Number(b.dataset.f) === (st.eaten[b.dataset.portion] ?? 1)));
+  const carbs = lunchCarbs(lunch, st.eaten);
+  $('#lunch-total').textContent = `${fmt(carbs)} g`;
+
+  const r = state.cgm.reading;
+  const note = $('#school-cgm-note');
+  note.hidden = !r;
+  if (r) {
+    note.innerHTML = `<span class="row-sub">${esc(bgNow.source && bgNow.source !== 'typed' ? `From ${sourceName(r)} ${r.arrow} ${r.trendText} · ${readingAge(r)}. Change it if a finger-prick says otherwise.`
+      : usableForDose(r) ? `${sourceName(r)} says ${fmt(r.mmol)} ${r.arrow} (${readingAge(r)}). You typed your own reading.`
+      : `${sourceName(r)} reading can’t be used (${r.low || r.high ? readingValue(r) : readingAge(r)}). Do a finger-prick.`)}</span>`;
+  }
+
+  const bg = parseBg(input.value);
+  const res = calculateDose({ carbs, bg, recentInsulin: st.recent ?? Boolean(st.data.recentInsulin), settings: state.settings });
+  const err = $('#school-bg-error');
+  err.hidden = res.status !== 'invalid-bg';
+  err.textContent = `Enter a reading between ${BG_MIN} and ${BG_MAX} mmol/L.`;
+  st.dose = res;
+  out.innerHTML = doseHtml(res, { correctionOnly: false });
+  const slot = $('.record-slot', out);
+  if (slot && res.status === 'ok') {
+    slot.innerHTML = `<section class="section"><div class="group">
+      <div class="row field-row"><label for="school-given">Units given<span class="row-sub">Change it if you gave a different amount</span></label>
+        <span class="stepper"><button type="button" data-given-step="-1" aria-label="Half a unit less">${ICON.minus}</button></span>
+        <input id="school-given" inputmode="decimal" style="width:3.5rem;text-align:center" value="${(st.given ?? res.rounded).toFixed(1)}">
+        <span class="stepper"><button type="button" data-given-step="1" aria-label="Half a unit more">${ICON.plus}</button></span>
+      </div></div><p class="section-footer">Saves what he ate, his BG and the units to his log at home.</p></section>
+      <div class="sheet-actions"><button class="btn btn-primary" data-school="record">Record as given</button></div>`;
+  }
+}
+
+async function recordLunch({ type = 'dose', confirmAgain = false } = {}) {
+  const st = state.school;
+  const input = $('#school-bg');
+  let bg = null;
+  let bgSource = null;
+  if (input) {
+    bg = parseBg(input.value);
+    bgSource = bg == null ? null : lunchBg().source || 'typed';
+  } else if (state.cgm.reading && usableForDose(state.cgm.reading)) {
+    bg = state.cgm.reading.mmol;
+    bgSource = state.cgm.reading.source || 'dexcom';
+  }
+  if (bg != null && (Number.isNaN(bg) || bg < BG_MIN || bg > BG_MAX)) { toast('Check the BG reading'); return; }
+  const body = { type, bg, bgSource };
+  if (type === 'dose') {
+    const units = num($('#school-given')?.value);
+    if (units == null || units < 0 || units > 50) { toast('Enter the units you gave'); return; }
+    const res = st.dose;
+    if (res?.maxDose && units > res.maxDose && !confirm(`${fmt(units)} U is more than the ${fmt(res.maxDose)} U limit. Record it anyway?`)) return;
+    Object.assign(body, { eaten: st.eaten, insulinGiven: units, recentInsulin: st.recent ?? Boolean(st.data.recentInsulin), confirmAgain: confirmAgain || st.again });
+  } else if (!confirm(`Record ${LOW_TREATMENT_G} g of fast carbs for a low now?`)) {
+    return;
+  }
+  try {
+    const { event } = await relayFetch(RELAY_URL, `/school/${st.data.today}/record`, { method: 'POST', body });
+    toast(type === 'dose' ? `${fmt(event.insulinGiven)} U saved to his log`
+      : `${LOW_TREATMENT_G} g saved. Recheck in 15 minutes; if he’s still low, give another ${LOW_TREATMENT_G} g and record it again.`, {
+      action: 'Undo',
+      onAction: () => undoLunchRecord(event.id),
+    });
+    Object.assign(st, { again: false, given: null, bgInput: null });
+    await loadSchool();
+    if (canReadLog()) loadTodayLog();
+  } catch (err) {
+    const rec = err.data?.recorded;
+    if (err.status === 409 && rec) {
+      if (confirm(`His lunch dose was already recorded at ${clockTime(rec.at)}: ${fmt(rec.units)} U by ${rec.by}. Record another dose anyway?`)) recordLunch({ type, confirmAgain: true });
+      else loadSchool();
+      return;
+    }
+    toast(err.status ? err.message : 'Couldn’t record it. Check the signal and try again.');
+  }
+}
+
+async function undoLunchRecord(id) {
+  try {
+    await relayFetch(RELAY_URL, `/school/record/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    toast('Removed from his log');
+  } catch (err) {
+    toast(err.message || 'Couldn’t undo. Try again.');
+  }
+  await loadSchool();
+  if (canReadLog()) loadTodayLog();
+}
+
+// Parents: the next school days, each opening its editor.
+function lunchPlanHtml() {
+  const rows = schoolDays().map((date) => {
+    const l = lunchOn(date);
+    const sub = !l ? 'Not planned'
+      : l.recorded ? `Given ${clockTime(l.recorded.at)} · ${fmt(l.recorded.units)} U`
+      : `${fmt(lunchCarbs(l))} g carbs · ${l.items.length} ${l.items.length === 1 ? 'item' : 'items'}`;
+    return `<button class="row" data-lunch-day="${date}"><span class="row-main"><span class="row-title">${esc(dayName(date))}</span><span class="row-sub ${l ? '' : 'lunch-empty'}">${esc(sub)}</span></span>${ICON.chevron}</button>`;
+  }).join('');
+  return section('Plan', rows, 'Tap a day to add his lunch. You can change it until the dose is recorded.');
+}
+
+// Teacher: the days ahead, read-only.
+function lunchComingHtml() {
+  const next = state.school.data.lunches.filter((l) => l.date > state.school.data.today).slice(0, 5);
+  if (!next.length) return '';
+  return section('Coming up', next.map((l) => `<div class="row"><span class="row-main"><span class="row-title">${esc(dayName(l.date))} · ${fmt(lunchCarbs(l))} g</span><span class="row-sub">${l.items.map((i) => esc(i.name)).join(', ')}</span></span></div>`).join(''));
+}
+
+// Parents: plan or change one day's lunch. withMeal adds the Foods tray to it.
+function openLunchEditor(date, { withMeal = false } = {}) {
+  const saved = lunchOn(date);
+  if (saved?.recorded) {
+    openSheet(`${sheetHeader(dayName(date), `Given at ${clockTime(saved.recorded.at)}: ${fmt(saved.recorded.units)} U for ${fmt(saved.recorded.carbs)} g`)}
+      ${section('Lunch', saved.items.map((i) => `<div class="row"><span class="row-main"><span class="row-title">${esc(i.name)}</span></span><span class="row-value">${fmt(i.carbs)} g</span></div>`).join(''), 'The dose is recorded, so this lunch can’t be changed. Undo the dose on the School page first.')}
+      <div class="sheet-actions"><button class="btn btn-secondary" data-action="close-sheet">Done</button></div>`);
+    return;
+  }
+  const draft = { items: (saved?.items || []).map((i) => ({ ...i })), note: saved?.note || '' };
+  const mealItems = () => state.meal.filter((l) => !l.food.free).map((l) => ({
+    id: newId().slice(0, 10),
+    name: `${l.food.name}${l.servings === 1 ? '' : ` × ${fmt(l.servings, 2)}`}`.slice(0, 60),
+    carbs: Math.round(lineCarbs(l.food, l.servings) * 10) / 10,
+  }));
+  if (withMeal) draft.items.push(...mealItems());
+  const others = (state.school.data?.lunches || []).filter((l) => l.date !== date);
+
+  openSheet(`
+    ${sheetHeader(dayName(date), saved ? `Planned by ${esc(saved.updatedBy)}` : 'His teacher sees this with the dose')}
+    <section class="section"><div class="group" id="lunch-items"></div><p class="section-footer" id="lunch-sum"></p></section>
+    <section class="section"><div class="group">
+      <button class="row" id="lunch-add"><span class="row-main"><span class="row-title row-link">Add an item</span></span>${ICON.plus}</button>
+      ${state.meal.length ? `<button class="row" id="lunch-add-meal"><span class="row-main"><span class="row-title row-link">Add the current meal</span><span class="row-sub">${state.meal.length} ${state.meal.length === 1 ? 'food' : 'foods'} from Foods, ${fmt(mealCarbs())} g</span></span>${ICON.plus}</button>` : ''}
+      ${others.length ? `<div class="row field-row"><label for="lunch-copy">Copy from</label><select id="lunch-copy" class="wide"><option value="">Another day…</option>${others.map((l) => `<option value="${l.date}">${esc(dayName(l.date))}</option>`).join('')}</select></div>` : ''}
+    </div></section>
+    <section class="section"><div class="group">
+      <div class="row field-row"><label for="lunch-note">Note</label><input id="lunch-note" class="wide" maxlength="200" placeholder="For his teacher (optional)" autocomplete="off"></div>
+    </div><p class="section-footer" id="lunch-status">Carbs are for the whole item as packed.</p></section>
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="lunch-save">Save lunch</button>
+      ${saved ? '<button class="btn btn-danger" id="lunch-delete">Remove this lunch</button>' : ''}
+    </div>`, {
+    onMount(root) {
+      const list = $('#lunch-items', root);
+      $('#lunch-note', root).value = draft.note;
+      const paint = () => {
+        list.innerHTML = draft.items.length ? draft.items.map((it, i) => `<div class="row field-row lunch-edit">
+            <input data-li="${i}" data-field="name" class="wide" maxlength="60" placeholder="Item" aria-label="Item ${i + 1}" autocomplete="off">
+            <input data-li="${i}" data-field="carbs" inputmode="decimal" placeholder="g" aria-label="Carbs in item ${i + 1}, grams" style="width:4rem;text-align:right">
+            <span class="unit">g</span>
+            <button type="button" class="icon-btn" data-remove="${i}" aria-label="Remove item ${i + 1}">${ICON.close}</button>
+          </div>`).join('') : '<div class="row"><span class="row-main"><span class="row-sub">No items yet. Add what’s in his lunchbox.</span></span></div>';
+        for (const el of $$('[data-li]', list)) {
+          const it = draft.items[el.dataset.li];
+          el.value = el.dataset.field === 'name' ? it.name : it.carbs == null ? '' : fmt(it.carbs);
+        }
+        sum();
+      };
+      const sum = () => { $('#lunch-sum', root).textContent = `${fmt(draft.items.reduce((s, i) => s + (i.carbs || 0), 0))} g carbs in total`; };
+      list.addEventListener('input', (e) => {
+        const d = e.target.dataset;
+        if (!d.li) return;
+        const it = draft.items[d.li];
+        if (d.field === 'name') it.name = e.target.value;
+        else it.carbs = num(e.target.value);
+        sum();
+      });
+      list.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-remove]');
+        if (b) { draft.items.splice(Number(b.dataset.remove), 1); paint(); }
+      });
+      $('#lunch-add', root).addEventListener('click', () => {
+        draft.items.push({ id: newId().slice(0, 10), name: '', carbs: null });
+        paint();
+        $$('[data-field="name"]', list).at(-1)?.focus();
+      });
+      $('#lunch-add-meal', root)?.addEventListener('click', () => { draft.items.push(...mealItems()); paint(); });
+      $('#lunch-copy', root)?.addEventListener('change', (e) => {
+        const from = lunchOn(e.target.value);
+        if (!from) return;
+        draft.items = from.items.map((i) => ({ ...i, id: newId().slice(0, 10) }));
+        draft.note = from.note || '';
+        $('#lunch-note', root).value = draft.note;
+        e.target.value = '';
+        paint();
+      });
+      $('#lunch-save', root).addEventListener('click', async (e) => {
+        const status = $('#lunch-status', root);
+        const items = draft.items.filter((i) => i.name.trim() || i.carbs != null);
+        if (!items.length) { status.textContent = 'Add at least one item.'; return; }
+        const bad = items.find((i) => !i.name.trim() || i.carbs == null || i.carbs < 0 || i.carbs > 200);
+        if (bad) { status.textContent = 'Each item needs a name and its carbs (0–200 g).'; return; }
+        e.currentTarget.disabled = true;
+        try {
+          await relayFetch(RELAY_URL, `/school/${date}`, { method: 'PUT', body: { items: items.map((i) => ({ id: i.id, name: i.name.trim(), carbs: i.carbs })), note: $('#lunch-note', root).value.trim() } });
+          closeSheet();
+          toast(`Lunch saved for ${dayName(date)}`);
+          if (withMeal) clearMeal();
+          loadSchool();
+        } catch (err) {
+          status.textContent = err.message || 'Couldn’t save. Check the signal and try again.';
+          e.currentTarget.disabled = false;
+        }
+      });
+      $('#lunch-delete', root)?.addEventListener('click', async () => {
+        if (!confirm(`Remove the lunch for ${dayName(date)}?`)) return;
+        try {
+          await relayFetch(RELAY_URL, `/school/${date}`, { method: 'DELETE' });
+          closeSheet();
+          toast('Lunch removed');
+          loadSchool();
+        } catch (err) {
+          $('#lunch-status', root).textContent = err.message;
+        }
+      });
+      paint();
+    },
+  });
+}
+
+// From the Foods tray: pick a school day to save the meal to.
+function openSaveMealAsLunch() {
+  if (!state.school.data) loadSchool();
+  openSheet(`${sheetHeader('Save as school lunch', `${fmt(mealCarbs())} g carbs from ${state.meal.length} ${state.meal.length === 1 ? 'food' : 'foods'}`)}
+    ${section('Which day?', schoolDays().map((date) => {
+      const l = lunchOn(date);
+      return `<button class="row" data-pick-day="${date}"><span class="row-main"><span class="row-title">${esc(dayName(date))}</span><span class="row-sub">${l?.recorded ? 'Already given' : l ? `Adds to the ${fmt(lunchCarbs(l))} g already planned` : 'Not planned yet'}</span></span>${ICON.chevron}</button>`;
+    }).join(''), 'You can check and change the items before saving.')}`, {
+    onMount(root) {
+      root.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-pick-day]');
+        if (!b) return;
+        closeSheet();
+        setTimeout(() => openLunchEditor(b.dataset.pickDay, { withMeal: true }), 320);
+      });
+    },
+  });
+}
+
+function initSchool() {
+  const el = $('#school-body');
+  el.addEventListener('click', (e) => {
+    const t = e.target.closest('[data-school], [data-portion], [data-given-step], [data-lunch-day]');
+    if (!t) return;
+    const st = state.school;
+    const d = t.dataset;
+    if (d.portion) { st.eaten = { ...st.eaten, [d.portion]: Number(d.f) }; st.given = null; paintLunchDose(); }
+    else if (d.givenStep) {
+      const field = $('#school-given');
+      st.given = Math.max(0, Math.round(((num(field.value) ?? 0) + Number(d.givenStep) * 0.5) * 2) / 2);
+      field.value = st.given.toFixed(1);
+    } else if (d.lunchDay) openLunchEditor(d.lunchDay);
+    else if (d.school === 'reload') { st.error = null; renderSchool(); }
+    else if (d.school === 'record') recordLunch();
+    else if (d.school === 'low') recordLunch({ type: 'low-treatment' });
+    else if (d.school === 'undo') { if (confirm('Remove this dose from his log?')) undoLunchRecord(d.id); }
+    else if (d.school === 'again') { st.again = true; renderSchool(); }
+  });
+  el.addEventListener('input', (e) => {
+    const st = state.school;
+    if (e.target.id === 'school-bg') { st.bgInput = e.target.value; st.given = null; paintLunchDose(); }
+    if (e.target.id === 'school-given') st.given = num(e.target.value);
+  });
+  el.addEventListener('change', (e) => {
+    if (e.target.id === 'school-recent') { state.school.recent = e.target.checked; state.school.given = null; paintLunchDose(); }
+  });
+}
+
 // ---------------------------------------------------------------- Tray
 
 const tray = {
@@ -1301,7 +1714,10 @@ function renderTray({ pulse = false } = {}) {
       </div>
       <p class="section-footer">Steps are half a serving. Tap a food to enter grams instead.</p>
     </section>
-    <div class="sheet-actions"><button class="btn btn-danger" data-action="clear-meal">Clear meal</button></div>` : '';
+    <div class="sheet-actions">
+      ${canPlanLunch() ? '<button class="btn btn-secondary" data-action="save-lunch">Save as school lunch…</button>' : ''}
+      <button class="btn btn-danger" data-action="clear-meal">Clear meal</button>
+    </div>` : '';
 
   const show = n > 0 && state.tab === 'foods';
   document.body.classList.toggle('has-tray', show);
@@ -2348,10 +2764,11 @@ function openJoin(code = null) {
           state.me = data.device;
           store.set('me', data.device);
           closeSheet();
+          applyRole();
           await loadSettings();
           renderSetupBanner(); renderSettings(); renderCgmCard(); renderHome();
           refreshCgm(); loadTodayLog(); loadRelayFoods();
-          toast(data.device.role === 'admin' ? 'Connected as admin' : 'This phone is connected');
+          toast(data.device.role === 'admin' ? 'Connected as admin' : data.device.role === 'school' ? 'Connected for his school lunch' : 'This phone is connected');
         } catch (err) {
           status.textContent = err.message;
           btn.disabled = false;
@@ -2425,6 +2842,7 @@ function openInvite() {
       <div class="row field-row"><label for="inv-role">Access</label><select id="inv-role" class="wide">
         <option value="family" selected>Family: readings, log, foods</option>
         <option value="tv">View only (TV)</option>
+        <option value="school">School: his lunch and readings (teacher)</option>
         <option value="admin">Admin: also settings and phones</option>
       </select></div>
     </div><p class="section-footer" id="inv-status">Send it privately, e.g. in a direct message, not a group chat.</p></section>
@@ -2484,8 +2902,8 @@ function openDeleteData() {
     <section class="section"><div class="group">
       <div class="row field-row"><label for="del-what">Delete</label><select id="del-what" class="wide">
         <option value="glucose">Glucose readings</option>
-        <option value="events">Meal and dose log</option>
-        <option value="all">Readings, log and settings history</option>
+        <option value="events">Meal and dose log, and school lunches</option>
+        <option value="all">Readings, log, school lunches and settings history</option>
       </select></div>
       <div class="row field-row"><label for="del-confirm">Type DELETE</label><input id="del-confirm" class="wide" autocomplete="off" spellcheck="false"></div>
     </div><p class="section-footer" id="del-status">His dose settings, phones and family foods are kept.</p></section>
@@ -2527,6 +2945,7 @@ function switchTab(tab) {
   if (tab === 'foods') renderFoods();
   if (tab === 'home') renderHome();
   if (tab === 'insights') { renderInsights(); loadInsights(); }
+  if (tab === 'school') { renderSchool(); loadSchool(); }
   if (tray.expanded) setTrayExpanded(false);
   renderTray();
   scrollTo(0, state.scroll[tab] || 0);
@@ -2550,6 +2969,7 @@ const actions = {
   'photo-label': openPhotoLabel,
   'cgm-refresh': refreshCgm,
   'test-alert': testAlert,
+  'save-lunch': () => { setTrayExpanded(false); openSaveMealAsLunch(); },
 };
 
 function initEvents() {
@@ -2579,6 +2999,7 @@ function initEvents() {
   $('#foods-search').addEventListener('input', (e) => { state.foodsQuery = e.target.value; renderFoods(); });
   document.addEventListener('change', (e) => { if (e.target.dataset.alertType) toggleAlert(e.target); });
   initInsights();
+  initSchool();
 
   document.addEventListener('visibilitychange', async () => {
     if (document.visibilityState !== 'visible') return;
@@ -2586,6 +3007,7 @@ function initEvents() {
     navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {});
     renderGreeting();
     await loadMe();
+    applyRole();
     if (await loadSettings()) { renderSettings(); renderSetupBanner(); }
     refreshCgm();
     loadTodayLog();
@@ -2618,6 +3040,7 @@ async function boot() {
   renderTray();
   renderHome();
   await loadMe();
+  applyRole();
   await Promise.all([loadSettings(), loadAllFoods()]);
   renderSetupBanner();
   renderHome();

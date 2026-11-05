@@ -32,6 +32,23 @@ Other things you can do:
   - **Falling fast:** when he drops 3 mmol/L or more in 15 minutes and is below 10, so you can get ready for a possible low. From 21:00 to 06:00 the alert also says he may be lying on his sensor, which can show a false drop. At most one alert an hour.
   - On iPhone, alerts only work from the Home Screen icon. They add to the Dexcom and Libre alarms; they don't replace them.
 
+### School lunch
+
+The **School** tab (Admin and Family phones) is where you plan his school lunch, and where his teacher's phone gets it with the dose.
+
+- **Plan ahead:** tap one of the next 10 school days and add what's in his lunchbox, each item with its carbs. You can also build the lunch in Foods and use **Save as school lunch…** on the meal tray, or **Copy from** another day. Add a note for his teacher if you like. You can change or remove a day's lunch until its dose is recorded.
+- **His teacher's phone:** invite it with **School** access (Settings → Phones → Invite a phone). It shows one screen:
+  - his reading and trend
+  - today's lunch, with **All · ¾ · ½ · ¼ · None** for each item
+  - the dose, worked out as at home (food plus a correction from his BG), with the low warning and 15 g treatment
+  - **Record as given**, and his alerts if switched on
+
+  It can't see his log, Insights, settings or the food list.
+- **When it's recorded:** the dose goes into his log at home, so insulin on board, alerts and Insights all count it. The School tab shows "Given at 12:10 · 2.5 U".
+  - **Double doses:** recording a second dose for the same lunch needs a confirmation that another dose was really given.
+  - **Undo:** his teacher can undo their own entry for 15 minutes; you can undo it at any time from the School tab.
+- **You can dose at school too:** the School tab's Today card works the same way, for example if you're there at lunch.
+
 ### Insights
 
 The **Insights** tab shows what his own history says. It never works out or suggests a dose.
@@ -69,7 +86,7 @@ An admin phone sees an extra **Admin** section in Settings:
   They're stored privately in the relay, not in the code repo. Family phones pick up changes the next time DiaBuddy is opened or brought back to the front.
 - **Settings change history:** every change, with who made it.
 - **Phones:** everyone who can see his readings, with their access and when they were last used.
-  - **Invite a phone:** choose who it's for and the access (Family, View only for a TV, or Admin), then share the link privately. It works once, for 24 hours.
+  - **Invite a phone:** choose who it's for and the access (Family, View only for a TV, School for his teacher, or Admin), then share the link privately. It works once, for 24 hours.
   - **Remove** a phone: it stops working straight away. Do this for a lost phone, or for someone who no longer cares for him.
   - **Turn off the old shared link:** shown until you do it. Once every phone has joined with an invite, this ends the old `#cgm=` family link.
 - **Delete his stored data:** readings, log and/or settings history, for example on a POPIA request.
@@ -188,6 +205,8 @@ Plain HTML, CSS and ES modules with no front-end build step. The app and the rel
 | `worker/worker.js` | Relay: API routes, Dexcom/Libre, log, foods, label photos, rate limits |
 | `worker/auth.js` | Invites, per-phone keys (stored hashed), roles |
 | `worker/settings.js` | Dose settings and their history |
+| `worker/events.js` | Meal & dose log entries (shared by the log and school routes) |
+| `worker/school.js` | School lunches: planning, the teacher's view, recording the dose |
 | `worker/label.js` | Reads label photos with Claude |
 | `scripts/build-site.mjs` | Copies only the app files into `dist/` and writes the security headers |
 | `data/foods.json` | Notebook + USDA foods, built by `scripts/build-foods.mjs` |

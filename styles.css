@@ -415,6 +415,31 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 .trend-warn { margin: 8px 0 2px; font-size: 0.875rem; }
 .row-range { font-weight: 400; color: var(--label-2); }
 
+/* ---------- School lunch ---------- */
+
+/* The teacher's phone has one screen, so no tab bar. */
+body[data-role="school"] .tabbar { display: none; }
+body[data-role="school"] .screen { padding-bottom: calc(var(--safe-b) + 32px); }
+.lunch-item { flex-wrap: wrap; }
+.lunch-item .segmented { flex-basis: 100%; margin: 8px 0 2px; }
+.lunch-item .segmented button { min-height: 40px; font-size: 0.9375rem; }
+.lunch-empty { color: var(--label-3); }
+.lunch-given .row-title { font-weight: 600; }
+.lunch-edit { gap: 8px; }
+.lunch-edit input[data-field="name"] { text-align: left; color: var(--label); min-width: 0; }
+.lunch-edit input[data-field="carbs"] { flex: none; }
+.icon-btn {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--label-2);
+  background: var(--fill);
+}
+.icon-btn svg { width: 14px; height: 14px; stroke-width: 2.4; }
+
 /* ---------- Insights ---------- */
 
 .progress { display: block; height: 6px; margin-top: 10px; border-radius: 3px; background: var(--fill-2); overflow: hidden; }
