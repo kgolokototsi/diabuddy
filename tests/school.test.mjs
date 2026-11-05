@@ -86,7 +86,7 @@ test('recording: the relay works out the carbs from what he ate, and the dose', 
   assert.equal(res.status, 201);
   assert.equal(res.body.event.carbs, 30, 'sent carbs are ignored');
   assert.equal(res.body.event.calculated.rounded, 3.5);
-  assert.equal(res.body.event.note, 'School lunch');
+  assert.equal(res.body.event.note, 'School lunch (first break)');
   assert.equal(res.body.event.device, teacherId);
   assert.deepEqual(res.body.event.foods.map((f) => [f.name, f.servings, f.carbs]), [['Cheese sandwich', 1, 24], ['Apple', 0.5, 6]]);
 
@@ -149,6 +149,42 @@ test('undo: the teacher within 15 minutes, parents any time; undoing reopens the
   // Only entries made from the lunch screen can be removed here.
   const other = (await call(env, 'POST', '/events', { key: parent, body: { type: 'dose', at: new Date().toISOString(), carbs: 20, insulinGiven: 2 } })).body.event;
   assert.equal((await call(env, 'DELETE', `/school/record/${other.id}`, { key: parent })).status, 404);
+});
+
+test('two lunches a day: first and second break are planned, dosed and undone separately', async () => {
+  const { env, parent, teacher } = await setUp();
+  const SECOND = { items: [{ id: 'yogh1', name: 'Yoghurt', carbs: 15 }] };
+  assert.equal((await call(env, 'PUT', `/school/${today()}/1`, { key: parent, body: LUNCH })).status, 200);
+  assert.equal((await call(env, 'PUT', `/school/${today()}/2`, { key: parent, body: SECOND })).status, 200);
+  assert.equal((await call(env, 'PUT', `/school/${today()}/3`, { key: parent, body: SECOND })).body.error, 'bad_slot');
+  assert.equal((await call(env, 'PUT', `/school/${today()}/2`, { key: teacher, body: SECOND })).status, 403, 'the teacher can\'t plan either break');
+
+  let seen = (await call(env, 'GET', '/school', { key: teacher })).body.lunches;
+  assert.deepEqual(seen.map((l) => [l.slot, l.items.length]), [[1, 2], [2, 1]], 'first break first, for older apps');
+
+  // Dosing first break leaves second break open, and vice versa.
+  const first = (await call(env, 'POST', `/school/${today()}/1/record`, { key: teacher, body: { bg: 6, insulinGiven: 3.5 } })).body.event;
+  assert.equal(first.carbs, 36);
+  assert.equal((await call(env, 'PUT', `/school/${today()}/1`, { key: parent, body: LUNCH })).status, 409, 'first break is locked');
+  assert.equal((await call(env, 'PUT', `/school/${today()}/2`, { key: parent, body: SECOND })).status, 200, 'second break can still change');
+  const second = await call(env, 'POST', `/school/${today()}/2/record`, { key: teacher, body: { bg: 6, insulinGiven: 1.5 } });
+  assert.equal(second.status, 201, 'no double-dose warning across breaks');
+  assert.equal(second.body.event.carbs, 15);
+  assert.equal(second.body.event.note, 'School lunch (second break)');
+  seen = (await call(env, 'GET', '/school', { key: teacher })).body.lunches;
+  assert.deepEqual(seen.map((l) => l.recorded.units), [3.5, 1.5]);
+
+  // Undo reopens only the break it belongs to.
+  assert.equal((await call(env, 'DELETE', `/school/record/${second.body.event.id}`, { key: teacher })).status, 200);
+  seen = (await call(env, 'GET', '/school', { key: teacher })).body.lunches;
+  assert.equal(seen[0].recorded.units, 3.5);
+  assert.equal(seen[1].recorded, undefined);
+
+  // Removing second break leaves first break; no slot in the path still means first break.
+  assert.equal((await call(env, 'DELETE', `/school/${today()}/2`, { key: parent })).status, 200);
+  seen = (await call(env, 'GET', '/school', { key: teacher })).body.lunches;
+  assert.deepEqual(seen.map((l) => l.slot), [1]);
+  assert.equal((await call(env, 'POST', `/school/${today()}/record`, { key: teacher, body: { bg: 6, insulinGiven: 3.5 } })).status, 409, 'unslotted record is first break');
 });
 
 test('lunch and portion helpers', () => {

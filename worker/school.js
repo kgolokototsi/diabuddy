@@ -1,6 +1,7 @@
-// School lunch: his parents plan today's lunch (lunch:<SA date>); his teacher's phone
-// sees it with the dose, sets how much he ate and records the dose given. The relay works
-// out the carbs and the dose itself, so the teacher's phone can only record what was planned.
+// School lunch: his parents plan today's lunches, one for each break (first break at
+// lunch:<SA date>, second break at lunch:<SA date>:2); his teacher's phone sees them with the
+// dose, sets how much he ate and records the dose given. The relay works out the carbs and
+// the dose itself, so the teacher's phone can only record what was planned.
 
 import { calculateDose, BG_MIN, BG_MAX } from '../dose.js';
 import { can } from './auth.js';
@@ -16,10 +17,13 @@ const FRACTIONS = [0, 0.25, 0.5, 0.75, 1];
 export const LOW_TREATMENT_G = 15;
 const DOSE_FIELDS = ['icr', 'cf', 'targetBg', 'roundTo', 'maxDose', 'hypoThreshold', 'negativeCorrection', 'updatedAt'];
 
-const lunchKey = (date) => `lunch:${date}`;
+export const SLOTS = [1, 2]; // first break, second break
+const SLOT_NAMES = { 1: 'first break', 2: 'second break' };
+const lunchKey = (date, slot = 1) => (slot === 1 ? `lunch:${date}` : `lunch:${date}:${slot}`);
+const isLunchNote = (note) => note === 'School lunch' || note === 'At school' || SLOTS.some((s) => note === `School lunch (${SLOT_NAMES[s]})`);
 const newId = () => crypto.getRandomValues(new Uint32Array(2)).reduce((s, n) => s + n.toString(36), '').slice(0, 12).padEnd(8, '0');
 
-export function cleanLunch(body, date) {
+export function cleanLunch(body, date, slot = 1) {
   if (!body || typeof body !== 'object' || !Array.isArray(body.items) || body.items.length > MAX_ITEMS) return null;
   const items = [];
   for (const it of body.items) {
@@ -35,7 +39,7 @@ export function cleanLunch(body, date) {
     items.push(item);
   }
   if (!items.length) return null;
-  return { date, items, note: str(body.note, 200)?.trim() || null };
+  return { date, slot, items, note: str(body.note, 200)?.trim() || null };
 }
 
 // Carbs he ate: each planned item × how much of it he ate (missing means all of it).
@@ -60,13 +64,19 @@ export async function handleSchool(request, env, device, url, cors, json, readJs
   const plan = can(device, 'lunch');
   if (!plan && !can(device, 'school')) return json({ error: 'not_allowed' }, 403, cors);
   const today = saDate(now);
-  const parts = url.pathname.split('/').filter(Boolean); // ['school', date?, 'record'?] or ['school', 'record', id]
+  // ['school'], ['school', date, slot?, 'record'?] or ['school', 'record', id].
+  // A missing slot means the first break, as older versions of the app send.
+  const parts = url.pathname.split('/').filter(Boolean);
   const method = request.method;
 
   if (parts.length === 1 && method === 'GET') {
     const settings = await readSettings(env);
-    const lunch = await env.LOG.get(lunchKey(today), 'json');
-    return json({ today, lunches: lunch ? [lunch] : [], settings: doseSettings(settings), recentInsulin: await recentInsulin(env, now) }, 200, cors);
+    const lunches = [];
+    for (const slot of SLOTS) {
+      const lunch = await env.LOG.get(lunchKey(today, slot), 'json');
+      if (lunch) lunches.push({ ...lunch, slot });
+    }
+    return json({ today, lunches, settings: doseSettings(settings), recentInsulin: await recentInsulin(env, now) }, 200, cors);
   }
 
   // Undo an entry made from the lunch screen.
@@ -74,14 +84,15 @@ export async function handleSchool(request, env, device, url, cors, json, readJs
     const id = parts[2];
     if (!/^[a-z0-9]{6,20}$/.test(id)) return json({ error: 'bad_id' }, 400, cors);
     const event = (await listEvents(env, 2)).find((e) => e.id === id);
-    if (!event || event.note !== 'School lunch' && event.note !== 'At school') return json({ error: 'not_found' }, 404, cors);
+    if (!event || !isLunchNote(event.note)) return json({ error: 'not_found' }, 404, cors);
     if (!plan && (event.device !== device.id || now - Date.parse(event.savedAt) > UNDO_MS)) return json({ error: 'undo_expired' }, 403, cors);
     await env.LOG.delete(eventKey(event));
     const lunchDate = saDate(Date.parse(event.at));
-    const lunch = await env.LOG.get(lunchKey(lunchDate), 'json');
-    if (lunch?.recorded?.eventId === id) {
+    for (const slot of SLOTS) {
+      const lunch = await env.LOG.get(lunchKey(lunchDate, slot), 'json');
+      if (lunch?.recorded?.eventId !== id) continue;
       delete lunch.recorded;
-      await env.LOG.put(lunchKey(lunchDate), JSON.stringify(lunch), { expirationTtl: LUNCH_TTL_S });
+      await env.LOG.put(lunchKey(lunchDate, slot), JSON.stringify(lunch), { expirationTtl: LUNCH_TTL_S });
     }
     await invalidateDay(env, event.at, now);
     return json({ deleted: id }, 200, cors);
@@ -89,25 +100,32 @@ export async function handleSchool(request, env, device, url, cors, json, readJs
 
   const date = parts[1];
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || Number.isNaN(Date.parse(date))) return json({ error: 'bad_date' }, 400, cors);
-  const existing = await env.LOG.get(lunchKey(date), 'json');
+  let slot = 1;
+  if (/^\d+$/.test(parts[2] || '')) {
+    slot = Number(parts[2]);
+    if (!SLOTS.includes(slot)) return json({ error: 'bad_slot' }, 400, cors);
+    parts.splice(2, 1); // the routes below are the same for each break
+  }
+  const key = lunchKey(date, slot);
+  const existing = await env.LOG.get(key, 'json');
 
   if (parts.length === 2 && method === 'PUT') {
     if (!plan) return json({ error: 'not_allowed' }, 403, cors);
     if (date !== today) return json({ error: 'bad_date' }, 400, cors); // today's lunch only
     if (existing?.recorded) return json({ error: 'already_recorded', recorded: existing.recorded }, 409, cors);
     const { body, bad, tooLarge } = await readJson(request, 6000);
-    const lunch = bad || tooLarge ? null : cleanLunch(body, date);
+    const lunch = bad || tooLarge ? null : cleanLunch(body, date, slot);
     if (!lunch) return json({ error: 'bad_lunch' }, 400, cors);
     Object.assign(lunch, { updatedBy: device.name, updatedAt: new Date(now).toISOString() });
-    await env.LOG.put(lunchKey(date), JSON.stringify(lunch), { expirationTtl: LUNCH_TTL_S });
+    await env.LOG.put(key, JSON.stringify(lunch), { expirationTtl: LUNCH_TTL_S });
     return json({ lunch }, 200, cors);
   }
 
   if (parts.length === 2 && method === 'DELETE') {
     if (!plan) return json({ error: 'not_allowed' }, 403, cors);
     if (existing?.recorded) return json({ error: 'already_recorded', recorded: existing.recorded }, 409, cors);
-    await env.LOG.delete(lunchKey(date));
-    return json({ deleted: date }, 200, cors);
+    await env.LOG.delete(key);
+    return json({ deleted: date, slot }, 200, cors);
   }
 
   if (parts.length === 3 && parts[2] === 'record' && method === 'POST') {
@@ -151,11 +169,11 @@ export async function handleSchool(request, env, device, url, cors, json, readJs
       insulinGiven,
       calculated: { rounded: r.rounded, exact: Math.round(r.exact * 100) / 100, food: Math.round(r.foodDose * 100) / 100, correction: Math.round(r.correction * 100) / 100 },
       recentInsulin: recent,
-      note: 'School lunch',
+      note: `School lunch (${SLOT_NAMES[slot]})`,
     }, now);
     await env.LOG.put(eventKey(event), JSON.stringify(event), { expirationTtl: EVENT_TTL_S });
     existing.recorded = { eventId: event.id, at: event.at, units: insulinGiven, carbs: ate.carbs, by: device.name, deviceId: device.id };
-    await env.LOG.put(lunchKey(date), JSON.stringify(existing), { expirationTtl: LUNCH_TTL_S });
+    await env.LOG.put(key, JSON.stringify(existing), { expirationTtl: LUNCH_TTL_S });
     return json({ event, recorded: existing.recorded }, 201, cors);
   }
 

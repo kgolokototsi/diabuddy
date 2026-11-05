@@ -19,7 +19,7 @@ DiaBuddy handles a child's glucose readings, insulin doses and dose settings. Un
 | Insights: one summary per day (time-of-day percentages, meal/low/correction response curves, 15-minute samples) | Cloudflare KV (`insights-day:<date>`, `insights-done`) | Connected phones | 120 days, like the readings |
 | His 30/60-minute forecast model (daily sums for fitting, the last 20 days of 5-minute training rows, the fitted model) | Cloudflare KV (`fcsum:<date>`, `fcrows:<date>`, `forecast-model`); the model is also cached on each phone | Connected phones | Sums 120 days, rows 20 days |
 | Weekly summary written by Claude | Cloudflare KV (`insights-summary:<week>`) | Connected phones | 1 year |
-| School lunches (items with carbs and servings, a note for his teacher, and the dose recorded); only today's can be planned | Cloudflare KV (`lunch:<date>`) | Connected phones except the TV; only Admin and Family phones can change them | 45 days |
+| School lunches, one per break (items with carbs and servings, a note for his teacher, and the dose recorded); only today's can be planned | Cloudflare KV (`lunch:<date>` for first break, `lunch:<date>:2` for second break) | Connected phones except the TV; only Admin and Family phones can change them | 45 days |
 | Alert subscriptions (a phone's push address and keys) | Cloudflare KV (`push:<device id>`, `high-alert`) | Only the relay | Until the phone turns alerts off or is removed |
 | Dexcom / LibreLinkUp logins, Anthropic API key, alert signing key (`VAPID_PRIVATE_JWK`) | Cloudflare Worker secrets (encrypted) | Only the relay code | Until rotated |
 | Each phone's own key, cached settings, meal in progress | That phone's browser storage | That phone | Until "Disconnect this phone" |
@@ -36,7 +36,7 @@ The repo was public before 4 November 2026. Its Git history still contains old `
   - **Admin:** everything below, plus dose settings, phones, invites and data deletion
   - **Family:** readings, log, foods, label photos
   - **View only (TV):** read only
-  - **School (his teacher):** his current reading, today's and upcoming school lunches with the dose settings needed to work out the dose, recording that lunch's dose or a 15 g low treatment, and alerts. It can't read his log, Insights, settings history or family foods, can't plan lunches, and can't add any other log entry.
+  - **School (his teacher):** his current reading, today's and upcoming school lunches with the dose settings needed to work out the dose, recording each break's lunch dose or a 15 g low treatment, and alerts. It can't read his log, Insights, settings history or family foods, can't plan lunches, and can't add any other log entry.
 - **Enforcement:** roles are checked by the relay on every request. Hiding buttons in the app is only a convenience.
 - **Removing access:** an admin can remove any phone, and any phone can disconnect itself. Removal takes effect on the next request.
 - **Old shared keys:** `FAMILY_KEY` and `TV_KEY` are accepted, as Family and TV, only until an admin taps **Settings → Phones → Turn off the old shared link**. After that, delete both secrets in Cloudflare.
@@ -56,7 +56,7 @@ The repo was public before 4 November 2026. Its Git history still contains old `
 | A09 Logging & monitoring | Failed joins and failed keys are logged in Cloudflare with the route and a hashed IP tag. Keys, request bodies and health data are never logged. Settings changes are kept with who made them. |
 | A10 SSRF | The relay only calls fixed hosts (Dexcom, LibreView, Anthropic). The one address a phone supplies, its alert (push) address, must be HTTPS on a browser push service (`fcm.googleapis.com`, `web.push.apple.com`, `updates.push.services.mozilla.com`, `*.notify.windows.com`); anything else is refused. |
 | API4 Unrestricted resource consumption | Cloudflare rate limits: 120 requests a minute per phone, 5 joins a minute per IP, 3 label photos a minute per phone plus 60 a day overall. Request bodies are size-capped. A spend limit is set on the Anthropic workspace. |
-| API6 Sensitive business flows | Label photos and invites need a Family or Admin phone. Data deletion needs an admin and a typed confirmation. A second dose for the same school lunch is refused unless the phone confirms another dose was really given. |
+| API6 Sensitive business flows | Label photos and invites need a Family or Admin phone. Data deletion needs an admin and a typed confirmation. A second dose for the same break's school lunch is refused unless the phone confirms another dose was really given. |
 | API8 Security misconfiguration · API9 inventory | All routes are listed in `worker/worker.js` (`API_PATHS`). There are no hidden or debug endpoints. |
 
 **Known limits:**

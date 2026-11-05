@@ -34,18 +34,20 @@ Other things you can do:
 
 ### School lunch
 
-The **School** tab (Admin and Family phones) is where you plan today's school lunch, and where his teacher's phone gets it with the dose.
+The **School** tab (Admin and Family phones) is where you plan today's school lunches, one for **first break** and one for **second break**, and where his teacher's phone gets them with the dose.
 
-- **Plan today's lunch:** tap **Plan today's lunch** and search the foods list (the same foods and SA packaged products as the Foods tab), with − / + for half servings, or type in an item that isn't listed. You can also build it in Foods and use **Add to today's school lunch** on the meal tray. Add a note for his teacher if you like. You can change or remove it until its dose is recorded.
+- **Pick the break:** the **First break · Second break** switch at the top shows each one's status (not planned, carbs planned, or units given). Each break has its own lunch, dose and record.
+- **Plan a lunch:** pick the break, tap **Plan first break lunch** (or second) and search the foods list (the same foods and SA packaged products as the Foods tab), with − / + for half servings, or type in an item that isn't listed. You can also build it in Foods and use **Add to today's school lunch** on the meal tray, then choose the break. Add a note for his teacher if you like. You can change or remove each lunch until its dose is recorded.
 - **His teacher's phone:** invite it with **School** access (Settings → Phones → Invite a phone). It shows one screen:
   - his reading and trend
-  - today's lunch, with **All · ¾ · ½ · ¼ · None** for each item
+  - today's lunches, one break at a time, with **All · ¾ · ½ · ¼ · None** for each item
   - the dose, worked out as at home (food plus a correction from his BG), with the low warning and 15 g treatment
   - **Record as given**, and his alerts if switched on
 
   It can't see his log, Insights, settings or the food list.
 - **When it's recorded:** the dose goes into his log at home, so insulin on board, alerts and Insights all count it. The School tab shows "Given at 12:10 · 2.5 U".
-  - **Double doses:** recording a second dose for the same lunch needs a confirmation that another dose was really given.
+  - **Second break:** if first break's dose was within 3 hours, **Insulin in the last 3 hours** is switched on, so the second break dose is for the food only, with no correction for a high BG.
+  - **Double doses:** recording a second dose for the same break's lunch needs a confirmation that another dose was really given.
   - **Undo:** his teacher can undo their own entry for 15 minutes; you can undo it at any time from the School tab.
 - **You can dose at school too:** the School tab's Today card works the same way, for example if you're there at lunch.
 
