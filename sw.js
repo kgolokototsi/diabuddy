@@ -2,7 +2,7 @@
 //
 // The API (readings, log, settings, phones) shares this origin, and those responses
 // hold his personal data, so they are never cached here: only the files below are.
-const VERSION = 'diabuddy-v26';
+const VERSION = 'diabuddy-v27';
 const SHELL = [
   './', 'index.html', 'styles.css', 'app.js', 'dose.js', 'foods.js', 'spring.js', 'config.js', 'cgm.js', 'alerts.js', 'forecast.js', 'fonts/inter-latin.woff2',
   'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png', 'icons/apple-touch-icon.png', 'data/foods.json',

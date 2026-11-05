@@ -784,7 +784,7 @@ function phoneRows() {
 // The alerts a phone can choose: [type, title, what it does].
 const ALERT_CHOICES = [
   ['high', 'High for over 2.5 hours', `When he’s been ${HIGH_MMOL} mmol/L or higher for 2.5 hours.`],
-  ['fall', 'Falling fast', 'When he drops quickly (about 1.7 mmol/L or more in 15 minutes) from below 10, to get ready for a possible low. At night this can also mean he’s lying on his sensor.'],
+  ['fall', 'Falling fast', 'When he drops quickly (3 mmol/L or more in 15 minutes) to below 10, to get ready for a possible low. At night this can also mean he’s lying on his sensor.'],
 ];
 
 // Alerts for this phone. state.alerts.types: null until checked, then the chosen types.

@@ -189,9 +189,8 @@ export async function checkHigh(env, logged, now = Date.now()) {
 
 // ---------------------------------------------------------------- the falling-fast check
 
-// Falling at least this fast over the last 15 minutes (mmol/L per minute; about 2 mg/dL
-// per minute, where Dexcom's "falling" arrow starts), from below 10, alerts the family.
-export const FALL_RATE = 0.11;
+// Falling at least this much over 15 minutes (mmol/L; 0.2 a minute), to below 10, alerts the family.
+export const FALL_DROP = 3;
 const FALL_FROM_BELOW = 10; // falls from higher up (e.g. after a correction) are expected
 const FALL_KEY = 'fall-alert';  // set for an hour after an alert, so one fall sends one alert
 const FALL_QUIET_S = 3600;
@@ -210,7 +209,7 @@ export function fallingFast(points, now = Date.now()) {
   if (!b15 || !b5) return null;
   const rate = (cur.v - b15.v) / ((cur.t - b15.t) / 60000);
   // Still falling over the last 5 minutes too, so a single odd reading doesn't count.
-  if (rate > -FALL_RATE || cur.v >= b5.v || cur.v >= FALL_FROM_BELOW) return null;
+  if (Math.round(-rate * 15 * 10) / 10 < FALL_DROP || cur.v >= b5.v || cur.v >= FALL_FROM_BELOW) return null;
   return { bg: cur.v, drop: Math.round((b15.v - cur.v) * 10) / 10, minutes: Math.round((cur.t - b15.t) / 60000), rate: Math.round(rate * 100) / 100, night: isNight(cur.t) };
 }
 

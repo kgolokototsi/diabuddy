@@ -207,16 +207,17 @@ const subscribeTypes = async (env, key, types) => {
 };
 const saTime = (hhmm) => Date.parse(`2026-11-05T${hhmm}:00Z`) - 2 * 3600000;
 
-test('falling fast: about 1.7 mmol/L in 15 minutes from below 10; slower falls, rises and falls from high do not count', () => {
+test('falling fast: 3 mmol/L or more in 15 minutes to below 10; slower falls, rises and falls from high do not count', () => {
   const now = saTime('14:00');
-  const f = fallingFast(falling(now, 5.2, 0.15), now);
+  const f = fallingFast(falling(now, 5.2, 0.2), now);
   assert.equal(f.bg, 5.2);
-  assert.ok(f.rate <= -0.11);
+  assert.ok(f.drop >= 3);
+  assert.equal(fallingFast(falling(now, 5.2, 0.18), now), null, '2.7 in 15 min');
   assert.equal(f.night, false);
   assert.equal(fallingFast(falling(now, 5.2, 0.06), now), null, 'slow fall');
   assert.equal(fallingFast(falling(now, 6, -0.15), now), null, 'rising');
-  assert.equal(fallingFast(falling(now, 11, 0.15), now), null, 'still above 10: an expected fall after a correction');
-  assert.equal(fallingFast(falling(now - 10 * MIN, 5.2, 0.15), now), null, 'no recent reading');
+  assert.equal(fallingFast(falling(now, 11, 0.25), now), null, 'still above 10: an expected fall after a correction');
+  assert.equal(fallingFast(falling(now - 10 * MIN, 5.2, 0.25), now), null, 'no recent reading');
   assert.equal(fallingFast(falling(saTime('23:30'), 5, 0.2), saTime('23:30')).night, true);
 });
 
@@ -229,17 +230,17 @@ test('falling-fast alert: day and night wording, once per fall, only to phones t
   assert.deepEqual((await call(env, 'GET', '/push', { key: b.token })).body.types, ['high']);
 
   const day = saTime('15:00');
-  assert.equal(await checkFall(env, falling(day, 5.4, 0.15), day), 1, 'only the phone that chose falling-fast');
+  assert.equal(await checkFall(env, falling(day, 5.4, 0.22), day), 1, 'only the phone that chose falling-fast');
   const msg = JSON.parse(await decrypt(phone, pushed[0].body));
   assert.equal(msg.title, 'Falling fast: 5.4 mmol/L');
   assert.match(msg.body, /Prepare for a possible low/);
-  assert.equal(await checkFall(env, falling(day + 4 * MIN, 4.8, 0.15), day + 4 * MIN), null, 'same fall: no second alert');
+  assert.equal(await checkFall(env, falling(day + 4 * MIN, 4.6, 0.22), day + 4 * MIN), null, 'same fall: no second alert');
 
   const env2 = makeEnv();
   const c = await join(env2, 'admin');
   const night = await subscribeTypes(env2, c.token, ['fall']);
   const t = saTime('02:10');
-  await checkFall(env2, falling(t, 4.6, 0.2), t);
+  await checkFall(env2, falling(t, 4.6, 0.22), t);
   const nmsg = JSON.parse(await decrypt(night.phone, pushed.at(-1).body));
   assert.match(nmsg.body, /lying on his sensor/);
   assert.match(nmsg.body, /finger-prick/);
