@@ -365,6 +365,8 @@ const readingAge = (r) => r.ageMinutes === 0 ? 'just now' : r.ageMinutes === 1 ?
 const sourceName = (r) => (r.source === 'libre' ? 'Libre' : 'Dexcom');
 // Low treatments follow the 15-15 rule: 15 g of fast carbs, recheck after 15 minutes.
 const LOW_TREATMENT_G = 15;
+// How far back something can be logged afterwards.
+const PAST_DAYS = 7;
 // From this a reading shows in orange (his team counts 14 as high).
 const HIGH_MMOL = 14;
 // Top of the shaded target range on the trend chart.
@@ -2416,7 +2418,11 @@ function openDose({ correctionOnly = false } = {}) {
   openSheet(`
     ${sheetHeader(correctionOnly ? 'BG correction' : 'His dose', correctionOnly ? 'No food. Correction for a high BG only.' : `${fmt(carbs)} g carbs from ${count} ${count === 1 ? 'food' : 'foods'}`)}
     <section class="section" style="margin-top:14px"><div class="group">
-      <div class="bg-entry"><label for="bg-input">Current BG</label><input id="bg-input" inputmode="decimal" placeholder="–" autocomplete="off" aria-describedby="bg-error"><span class="unit">mmol/L</span></div>
+      <div class="row when-row"><span class="row-main"><span class="row-title">When</span><span class="row-sub" id="when-sub">Happening now</span></span>
+        <div class="segmented when-seg" role="group" aria-label="When"><button type="button" data-when="now" aria-pressed="true">Now</button><button type="button" data-when="earlier" aria-pressed="false">Earlier</button></div>
+      </div>
+      <div class="row field-row" id="when-time-row" hidden><label for="when-time">Time it happened</label><input id="when-time" type="datetime-local" class="wide"></div>
+      <div class="bg-entry"><label for="bg-input" id="bg-label">Current BG</label><input id="bg-input" inputmode="decimal" placeholder="–" autocomplete="off" aria-describedby="bg-error"><span class="unit">mmol/L</span></div>
       <div class="row cgm-note" id="cgm-note" hidden></div>
       <div class="row"><span class="row-main"><label for="recent-insulin" class="row-title">Insulin in the last 3 hours</label><span class="row-sub">Leaves out a correction for high BG</span></span><input type="checkbox" class="switch" id="recent-insulin"></div>
     </div><p class="field-error" id="bg-error" hidden></p></section>
@@ -2458,6 +2464,8 @@ function openDose({ correctionOnly = false } = {}) {
         if (!logReady()) { recordEl.innerHTML = ''; return; }
         const isLow = r.status === 'hypo';
         if (r.status !== 'ok' && !isLow) { recordEl.innerHTML = ''; return; }
+        const pastLow = earlier && !isLow
+          ? `<div class="sheet-actions" id="past-low"><button class="btn btn-secondary" id="record-low">Record a ${LOW_TREATMENT_G} g low treatment instead</button></div>` : '';
         if (isLow) {
           if (!$('#record-low', recordEl)) {
             recordEl.innerHTML = `<div class="sheet-actions"><button class="btn btn-secondary" id="record-low">Record ${LOW_TREATMENT_G} g low treatment</button></div>
@@ -2477,37 +2485,45 @@ function openDose({ correctionOnly = false } = {}) {
             <div class="sheet-actions"><button class="btn btn-primary" id="record-dose">Record as given</button></div>`;
         }
         if (!givenEdited) $('#given', recordEl).value = r.rounded.toFixed(1);
+        $('#past-low', recordEl)?.remove();
+        if (pastLow) recordEl.insertAdjacentHTML('beforeend', pastLow);
       };
 
       const bgSourceNow = () => (cgmFilled !== null && input.value === cgmFilled && cgmReading ? cgmReading.source || 'dexcom' : 'typed');
       const record = async (type, insulinGiven) => {
         const { r, bg } = latest;
-        const lines = correctionOnly ? [] : state.meal;
+        const at = whenAt();
+        if (!at) { toast(`Pick a time in the last ${PAST_DAYS} days`); return; }
+        const isLow = type === 'low-treatment';
+        const lines = correctionOnly || isLow ? [] : state.meal;
         const event = {
           id: newId(),
           type,
-          at: new Date().toISOString(),
+          at,
           carbs: type === 'low-treatment' ? LOW_TREATMENT_G : carbs,
           foods: lines.map((l) => ({ name: l.food.name, servings: l.servings, carbs: Math.round(lineCarbs(l.food, l.servings) * 10) / 10, source: l.food.source })),
           bg: bg != null && !Number.isNaN(bg) ? bg : null,
           bgSource: bg != null ? bgSourceNow() : null,
           insulinGiven,
-          calculated: r.status === 'ok' ? { rounded: r.rounded, exact: Math.round(r.exact * 100) / 100, food: Math.round(r.foodDose * 100) / 100, correction: Math.round(r.correction * 100) / 100 } : null,
+          calculated: r.status === 'ok' && !isLow ? { rounded: r.rounded, exact: Math.round(r.exact * 100) / 100, food: Math.round(r.foodDose * 100) / 100, correction: Math.round(r.correction * 100) / 100 } : null,
           recentInsulin,
           settings: { icr: state.settings?.icr, cf: state.settings?.cf, targetBg: state.settings?.targetBg },
+          ...(earlier && { note: 'Added later; not logged at the time' }),
           device: deviceId,
         };
         const previousMeal = state.meal;
+        const tookMeal = lines.length > 0;
         closeSheet();
-        if (!correctionOnly) { state.meal = []; saveMeal(); renderTray(); refreshRows(); }
+        if (tookMeal) { state.meal = []; saveMeal(); renderTray(); refreshRows(); }
         await saveEvent(event);
-        toast(type === 'low-treatment'
+        const when = earlier ? ` for ${isToday(at) ? '' : `${new Date(at).toLocaleDateString('en-GB', { weekday: 'short' })} `}${clockTime(at)}` : '';
+        toast(isLow && !earlier
           ? `${LOW_TREATMENT_G} g saved. Recheck in 15 minutes; if still below ${fmt(state.settings?.hypoThreshold ?? 4)}, give another ${LOW_TREATMENT_G} g and record it again.`
-          : `${fmt(insulinGiven)} U saved to his log`, {
+          : `${isLow ? `${LOW_TREATMENT_G} g low treatment` : `${fmt(insulinGiven)} U`} saved to his log${when}`, {
           action: 'Undo',
           onAction: async () => {
             try { await removeEvent(event.id); } catch {}
-            if (!correctionOnly) { state.meal = previousMeal; saveMeal(); renderTray(); refreshRows(); }
+            if (tookMeal) { state.meal = previousMeal; saveMeal(); renderTray(); refreshRows(); }
           },
         });
       };
@@ -2530,6 +2546,54 @@ function openDose({ correctionOnly = false } = {}) {
           record(correctionOnly ? 'correction' : 'dose', units);
         }
       });
+
+      // When it happened: now, or a time in the last week for something not logged then.
+      let earlier = false;
+      const whenInput = $('#when-time', root);
+      const whenAt = () => {
+        if (!earlier) return new Date().toISOString();
+        const t = new Date(whenInput.value).getTime();
+        return Number.isFinite(t) && t <= Date.now() + 60000 && t >= Date.now() - PAST_DAYS * 86400000 ? new Date(t).toISOString() : null;
+      };
+      const localInput = (ms) => new Date(ms - new Date(ms).getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+      // His reading at that time, if it's within the last hour of sensor history.
+      const bgAt = (ms) => {
+        const near = (cgmReading?.history || []).map((p) => ({ ...p, d: Math.abs(Date.parse(p.time) - ms) })).sort((a, b) => a.d - b.d)[0];
+        return near && near.d <= 3 * 60000 ? near : null;
+      };
+      const paintWhen = () => {
+        for (const b of $$('[data-when]', root)) b.setAttribute('aria-pressed', String((b.dataset.when === 'earlier') === earlier));
+        $('#when-time-row', root).hidden = !earlier;
+        $('#bg-label', root).textContent = earlier ? 'BG at that time' : 'Current BG';
+        $('#when-sub', root).textContent = earlier ? 'Logging it afterwards' : 'Happening now';
+        if (earlier) {
+          // A reading from now isn't his BG then: use the sensor's reading at that time, or leave it to be typed.
+          const t = Date.parse(whenAt() || '');
+          const then = Number.isFinite(t) ? bgAt(t) : null;
+          if (cgmFilled !== null && input.value === cgmFilled) { input.value = ''; cgmFilled = null; }
+          if (then && input.value.trim() === '') { input.value = fmt(then.mmol); cgmFilled = input.value; }
+          note.hidden = false;
+          note.innerHTML = `<span class="row-sub">${then ? `From ${esc(sourceName(cgmReading))} at ${clockTime(then.time)}. Change it if a finger-prick said otherwise.` : 'Type his BG from then, or leave it blank if nobody checked.'}</span>`;
+          $('#cgm-warn', root).innerHTML = '';
+        } else {
+          if (cgmFilled !== null && input.value === cgmFilled) { input.value = ''; cgmFilled = null; }
+          if (cgmReading && usableForDose(cgmReading) && input.value.trim() === '') { input.value = fmt(cgmReading.mmol); cgmFilled = input.value; }
+          paintCgm();
+        }
+        paint();
+      };
+      root.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-when]');
+        if (!b) return;
+        earlier = b.dataset.when === 'earlier';
+        if (earlier && !whenInput.value) {
+          whenInput.value = localInput(Date.now() - 30 * 60000);
+          whenInput.max = localInput(Date.now());
+          whenInput.min = localInput(Date.now() - PAST_DAYS * 86400000);
+        }
+        paintWhen();
+      });
+      whenInput.addEventListener('change', paintWhen);
 
       // Fill in BG from the sensor when the reading is fresh enough to trust.
       let cgmFilled = null;
@@ -2556,6 +2620,7 @@ function openDose({ correctionOnly = false } = {}) {
         getReading().then((r) => {
           if (!root.isConnected) return;
           cgmReading = r;
+          if (earlier) { paintWhen(); return; }
           if (usableForDose(r) && input.value.trim() === '') {
             input.value = fmt(r.mmol);
             cgmFilled = input.value;

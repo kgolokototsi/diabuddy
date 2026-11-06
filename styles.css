@@ -420,6 +420,10 @@ button.row:active, button.row.pressed { background: var(--fill-2); transition: n
 .trend-warn { margin: 8px 0 2px; font-size: 0.875rem; }
 .row-range { font-weight: 400; color: var(--label-2); }
 
+/* Dose sheet: now, or logging something that already happened */
+.when-seg { flex: none; width: 170px; margin: 0; }
+#when-time { text-align: right; }
+
 /* ---------- School lunch ---------- */
 
 /* The teacher's phone has one screen, so no tab bar. */

@@ -26,6 +26,7 @@ Other things you can do:
 - **Meal in progress:** if you leave Foods partway through a meal, Home shows it so you can carry on.
 - **Insulin in the last 3 hours:** switch this on if he's had insulin recently. DiaBuddy then leaves out the high-BG correction so doses don't stack.
 - If his BG is **below 4.0**, DiaBuddy won't show a dose. Treat the low first.
+- **Logging afterwards:** at the top of the dose sheet, choose **Earlier** instead of **Now** and set the time (up to 7 days back), for example a low treated at school that nobody logged. BG fills in from the sensor's reading at that time if it was in the last hour; otherwise type it, or leave it blank if nobody checked. **Record a 15 g low treatment instead** is there whatever the BG. The entry is saved at that time with a note that it was added later.
 - **Disconnect this phone** (Settings) removes his data from the phone, e.g. before you hand it on.
 - **Alerts** (Settings → Alerts), each switched on per phone:
   - **High for over 2.5 hours:** when he has been 14 mmol/L or higher for 2.5 hours, *"Glucose reading High for over 2.5 hours. Consider a correction dosage."* One alert per high spell.
